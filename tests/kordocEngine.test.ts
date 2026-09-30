@@ -18,7 +18,7 @@ const SAMPLE = `# HanMark 검증 문서
 $$a^2 + b^2 = c^2$$
 `;
 
-describe("Kordoc 4.2.5 generation", () => {
+describe("Kordoc generation (pinned engine)", () => {
   it("generates, validates, reparses, and renders a no-install HWPX", async () => {
     const generated = await generateValidatedHwpx(SAMPLE);
     assert.equal(generated.validation.ok, true);
@@ -46,7 +46,7 @@ describe("Kordoc 4.2.5 generation", () => {
     assert.ok(preview.render.pageCount >= 1);
   });
 
-  for (const preset of ["official", "report", "plan", "notice", "minutes", "gaejosik", "press"] as GongmunPreset[]) {
+  for (const preset of ["official", "report", "plan", "notice", "minutes", "gaejosik", "press", "ministry"] as GongmunPreset[]) {
     it(`generates a structurally valid ${preset} public-document preset`, async () => {
       const generated = await generateValidatedHwpx(`# ${preset}\n\n- 추진 배경\n- 추진 계획\n`, {
         gongmun: { preset }

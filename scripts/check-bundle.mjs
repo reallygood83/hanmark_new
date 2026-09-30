@@ -10,7 +10,24 @@ const docxPreviewView = await readFile(
 const packageManifest = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8")
 );
-const maximumBundleBytes = 3_459_213;
+// 2.6.1 (Kordoc 4.2.5): 3,322,872 bytes. 2.7.0 M1 (Kordoc 4.15.7 library graph,
+// no new features yet): 3,668,074 bytes. 2.7.0 M2: 3,889,725 bytes (+214,678 bytes
+// of base64 Korean PDF CMaps, plus HWPX post-processing and the font guide).
+// 2.7.0 M5: 3,979,852 bytes (UTF-8 output charset). 2.7.0 M6: 4,050,630 bytes
+// (+58,931 bytes of comparison and form-filling code, of which 21,353 are Kordoc
+// diff/fill modules and 18,883 the two embedded standard draft letters; +11,847
+// bytes of messages). 2.7.0 M7 (every screen in Korean and English, 1,412 message
+// keys): 4,147,233 bytes, within the M6 ceiling. 2.7.0 official-document
+// feedback (R-024 to R-026: heading mapping and finishing, Hallym University
+// forms, per-type frames, one form list, the preview toolbar): 4,179,268 bytes
+// (+32,035; new modules 16,197 bytes).
+// The ceiling keeps ~3% headroom and is raised only with a recorded reason
+// (docs/research/R-018 change log).
+const maximumBundleBytes = 4_305_000;
+const pinnedKordocVersion = packageManifest.dependencies?.kordoc;
+const installedKordoc = JSON.parse(
+  await readFile(new URL("../node_modules/kordoc/package.json", import.meta.url), "utf8")
+);
 const forbiddenNativeModules = [
   "sharp",
   "onnxruntime-node",
@@ -100,13 +117,23 @@ if (
   );
 }
 
-if (!bundle.includes("4.2.5")) {
-  throw new Error("The production bundle does not contain the pinned Kordoc 4.2.5 implementation.");
+if (typeof pinnedKordocVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(pinnedKordocVersion)) {
+  throw new Error("kordoc must be pinned to an exact version in package.json.");
+}
+if (installedKordoc.version !== pinnedKordocVersion) {
+  throw new Error(
+    `Installed Kordoc ${installedKordoc.version} differs from the pinned ${pinnedKordocVersion}; run npm ci.`
+  );
+}
+// Kordoc embeds its own version as the VERSION export. Checking the quoted
+// version string (not a bare substring) proves the pinned engine was bundled.
+if (!bundle.includes(`"${pinnedKordocVersion}"`)) {
+  throw new Error(`The production bundle does not contain the pinned Kordoc ${pinnedKordocVersion} implementation.`);
 }
 
 if (Buffer.byteLength(bundle, "utf8") > maximumBundleBytes) {
   throw new Error(
-    `Production bundle exceeds the 2.4.2 baseline (${Buffer.byteLength(bundle, "utf8")} > ${maximumBundleBytes} bytes).`
+    `Production bundle exceeds the recorded ceiling (${Buffer.byteLength(bundle, "utf8")} > ${maximumBundleBytes} bytes). Record the reason in docs/research before raising it.`
   );
 }
 
@@ -149,5 +176,5 @@ if (!bundle.includes("A user-initiated DOCX preview request is required.")) {
 }
 
 console.log(
-  `Bundle check passed: ${Buffer.byteLength(bundle, "utf8")} bytes; Kordoc 4.2.5 and guarded DOCX package preview present; PDF.js clipboard and Kordoc COM fallbacks removed; only the user-initiated process boundary remains.`
+  `Bundle check passed: ${Buffer.byteLength(bundle, "utf8")} bytes; Kordoc ${pinnedKordocVersion} and guarded DOCX package preview present; PDF.js clipboard and Kordoc COM fallbacks removed; only the user-initiated process boundary remains.`
 );

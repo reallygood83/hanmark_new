@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+import { t } from "../i18n";
 
 const HH_NS = "http://www.hancom.co.kr/hwpml/2011/head";
 const SCRIPT_KEYS = ["hangul", "latin", "hanja", "japanese", "other", "symbol", "user"] as const;
@@ -108,7 +109,11 @@ function parseXml(xml: string, label: string): Document {
     }
   }).parseFromString(xml.replace(/^\uFEFF/, ""), "application/xml");
   if (!document?.documentElement || errors.length) {
-    throw new Error(`${label} XML을 읽을 수 없습니다.${errors[0] ? ` ${errors[0]}` : ""}`);
+    throw new Error(
+      errors[0]
+        ? t("docStyle.error.xmlUnreadableDetail", { file: label, detail: errors[0] })
+        : t("docStyle.error.xmlUnreadable", { file: label })
+    );
   }
   return document;
 }
@@ -233,7 +238,7 @@ function normalizePage(input: unknown): PageStyleProfile | undefined {
 }
 
 export function normalizeDocumentStyleProfile(input: unknown): DocumentStyleProfile {
-  if (!isRecord(input)) throw new Error("문서 스타일 프로필이 비어 있습니다.");
+  if (!isRecord(input)) throw new Error(t("docStyle.error.profileEmpty"));
   const sourceSchemaVersion = Number(input.schemaVersion) || 1;
   const roles: DocumentStyleProfile["roles"] = {};
   for (const role of ROLE_KEYS) {
@@ -255,13 +260,13 @@ export function normalizeDocumentStyleProfile(input: unknown): DocumentStyleProf
   if (sourceSchemaVersion < 3 && roles.h4) {
     if (!roles.h5) roles.h5 = structuredClone(roles.h4);
     if (!roles.h6) roles.h6 = structuredClone(roles.h4);
-    if (roles.h5) roles.h5.styleName = "제목 5";
-    if (roles.h6) roles.h6.styleName = "제목 6";
+    if (roles.h5) roles.h5.styleName = "제목 5"; // i18n-data: HWPX style name
+    if (roles.h6) roles.h6.styleName = "제목 6"; // i18n-data: HWPX style name
   }
-  if (!Object.keys(roles).length) throw new Error("본문 또는 제목 스타일을 찾을 수 없습니다.");
+  if (!Object.keys(roles).length) throw new Error(t("docStyle.error.noRoles"));
   return {
     schemaVersion: 3,
-    name: cleanText(input.name, 100) || "가져온 문서 스타일",
+    name: cleanText(input.name, 100) || t("docStyle.profile.importedName"),
     sourceName: cleanText(input.sourceName, 160),
     roles,
     page: normalizePage(input.page)
@@ -327,6 +332,7 @@ function extractedParagraph(paraPr: Element | undefined): ParagraphStyleProfile 
 function styleRole(style: Element): DocumentStyleRole | undefined {
   const english = (style.getAttribute("engName") || "").trim().toLowerCase();
   const korean = (style.getAttribute("name") || "").trim().toLowerCase();
+  // i18n-data-begin: Korean HWPX style names matched in the document
   if (english === "normal" || korean === "바탕글") return "body";
   for (let level = 1; level <= 6; level++) {
     if (english === `heading ${level}` || korean === `제목 ${level}`) return `h${level}` as DocumentStyleRole;
@@ -334,6 +340,7 @@ function styleRole(style: Element): DocumentStyleRole | undefined {
   if (["block text", "blockquote", "quote"].includes(english) || korean.includes("인용")) return "quote";
   if (["source code", "code block", "verbatim"].includes(english) || korean.includes("코드")) return "code";
   if (["list paragraph", "list"].includes(english) || korean.includes("목록")) return "list";
+  // i18n-data-end
   return undefined;
 }
 
@@ -361,12 +368,12 @@ function extractedPage(section: Document): PageStyleProfile | undefined {
 /** Extract safe semantic values only; reference XML and its local IDs are never persisted. */
 export async function extractDocumentStyleProfile(
   input: ArrayBuffer | Uint8Array,
-  name = "가져온 문서 스타일"
+  name = t("docStyle.profile.importedName")
 ): Promise<DocumentStyleProfile> {
   const zip = await JSZip.loadAsync(input);
   const headerFile = zipFileByPortablePath(zip, "Contents/header.xml");
   const sectionFile = zipFileByPortablePath(zip, "Contents/section0.xml");
-  if (!headerFile || !sectionFile) throw new Error("문서 스타일을 읽을 header.xml 또는 section0.xml이 없습니다.");
+  if (!headerFile || !sectionFile) throw new Error(t("docStyle.error.readPartsMissing"));
   const header = parseXml(await headerFile.async("string"), "header.xml");
   const section = parseXml(await sectionFile.async("string"), "section0.xml");
   const fonts = fontMaps(header);
@@ -384,7 +391,7 @@ export async function extractDocumentStyleProfile(
 
   if (!roles.body) {
     roles.body = {
-      styleName: "바탕글",
+      styleName: "바탕글", // i18n-data: HWPX style name
       character: extractedCharacter(charPrs.get("0"), fonts),
       paragraph: extractedParagraph(paraPrs.get("0"))
     };
@@ -411,8 +418,8 @@ const SCRIPT_LANGUAGE: Record<(typeof SCRIPT_KEYS)[number], string> = {
 
 function canonicalHwpxFontFace(family: string): string {
   const normalized = family.replace(/\s+/g, " ").trim();
-  if (normalized === "신명조") return "한양신명조";
-  if (normalized === "맑은고딕") return "맑은 고딕";
+  if (normalized === "신명조") return "한양신명조"; // i18n-data: font family names
+  if (normalized === "맑은고딕") return "맑은 고딕"; // i18n-data: font family names
   return normalized;
 }
 
@@ -452,7 +459,7 @@ function clonedFont(
 function ensureUnifiedFont(header: Document, rawFamily: string): string {
   const family = canonicalHwpxFontFace(rawFamily);
   const configured = configuredFontfaces(header);
-  if (!configured.length) throw new Error("HWPX 글꼴 테이블을 찾을 수 없습니다.");
+  if (!configured.length) throw new Error(t("docStyle.error.fontTableMissing"));
   const normalized = family.toLocaleLowerCase();
   const commonIds = configured
     .map(({ group }) => new Set(
@@ -483,7 +490,7 @@ function ensureUnifiedFont(header: Document, rawFamily: string): string {
     let nextId = Math.max(-1, ...fonts.map((font) => Number(font.getAttribute("id"))).filter(Number.isFinite)) + 1;
     while (nextId < commonId) {
       const fillerTemplate = fonts[0] ?? familyTemplate;
-      const fillerFamily = fillerTemplate?.getAttribute("face") || "함초롬바탕";
+      const fillerFamily = fillerTemplate?.getAttribute("face") || "함초롬바탕"; // i18n-data: font family name
       group.appendChild(clonedFont(header, fillerTemplate, nextId, fillerFamily));
       fonts = directElements(group, "font");
       nextId++;
@@ -622,7 +629,7 @@ function appendExtendedHeadingResources(
     if (!roleStyle) continue;
     const charTemplate = charPrs.get(8) ?? charPrs.get(0);
     const paraTemplate = paraPrs.get(4) ?? paraPrs.get(0);
-    if (!charTemplate || !paraTemplate) throw new Error(`H${level} 스타일을 만들 기준 HWPX 속성이 없습니다.`);
+    if (!charTemplate || !paraTemplate) throw new Error(t("docStyle.error.headingBaseMissing", { level }));
 
     const charPr = charTemplate.cloneNode(true) as Element;
     charPr.setAttribute("id", String(charId));
@@ -668,21 +675,21 @@ function applyExtendedHeadingMarkers(
   for (const marker of markers) {
     const matches = textElements.filter((text) => (text.textContent || "").includes(marker.token));
     if (matches.length !== 1) {
-      throw new Error(`H${marker.level} 제목 식별자 검증 실패: 예상 1개, 발견 ${matches.length}개`);
+      throw new Error(t("docStyle.error.headingMarkerCount", { level: marker.level, count: matches.length }));
     }
     const resource = resources.get(marker.level);
-    if (!resource) throw new Error(`H${marker.level} 문서 스타일이 없어 제목 단계를 보존할 수 없습니다.`);
+    if (!resource) throw new Error(t("docStyle.error.headingStyleMissing", { level: marker.level }));
     const text = matches[0];
     text.textContent = (text.textContent || "").replace(marker.token, "");
     const paragraph = ancestor(text, "p");
-    if (!paragraph) throw new Error(`H${marker.level} 제목 문단을 찾을 수 없습니다.`);
+    if (!paragraph) throw new Error(t("docStyle.error.headingParagraphMissing", { level: marker.level }));
     paragraph.setAttribute("paraPrIDRef", String(resource.paraId));
     paragraph.setAttribute("styleIDRef", String(resource.styleId));
     for (const run of elements(paragraph, "run")) run.setAttribute("charPrIDRef", String(resource.charId));
   }
   const serialized = new XMLSerializer().serializeToString(section);
   const leaked = markers.find((marker) => serialized.includes(marker.token));
-  if (leaked) throw new Error(`H${leaked.level} 임시 식별자가 HWPX에 남았습니다.`);
+  if (leaked) throw new Error(t("docStyle.error.headingMarkerLeaked", { level: leaked.level }));
 }
 
 function ensureNamedStyles(
@@ -697,7 +704,7 @@ function ensureNamedStyles(
   const normal = existing.get("0");
   if (normal && profile.roles.body) {
     normal.setAttribute("type", "PARA");
-    normal.setAttribute("name", profile.roles.body.styleName || "바탕글");
+    normal.setAttribute("name", profile.roles.body.styleName || "바탕글"); // i18n-data: HWPX style name
     normal.setAttribute("engName", "Normal");
     normal.setAttribute("paraPrIDRef", "0");
     normal.setAttribute("charPrIDRef", "0");
@@ -720,7 +727,7 @@ function ensureNamedStyles(
     }
     style.setAttribute("id", String(level));
     style.setAttribute("type", "PARA");
-    style.setAttribute("name", profile.roles[role]?.styleName || `제목 ${level}`);
+    style.setAttribute("name", profile.roles[role]?.styleName || `제목 ${level}`); // i18n-data: HWPX style name
     style.setAttribute("engName", `Heading ${level}`);
     style.setAttribute("paraPrIDRef", String(resource.paraId));
     style.setAttribute("charPrIDRef", String(resource.charId));
@@ -749,7 +756,7 @@ export async function applyDocumentStyleToHwpx(
   const zip = await JSZip.loadAsync(input);
   const headerFile = zip.file("Contents/header.xml");
   const sectionFile = zip.file("Contents/section0.xml");
-  if (!headerFile || !sectionFile) throw new Error("문서 스타일을 적용할 header.xml 또는 section0.xml이 없습니다.");
+  if (!headerFile || !sectionFile) throw new Error(t("docStyle.error.applyPartsMissing"));
   const header = parseXml(await headerFile.async("string"), "header.xml");
   const section = parseXml(await sectionFile.async("string"), "section0.xml");
   const charPrs = new Map(elements(header, "charPr").map((element) => [Number(element.getAttribute("id")), element]));
@@ -865,7 +872,8 @@ export function legacyTemplatePageLayout(profile: DocumentStyleProfile): Record<
 export function defaultDocumentStyleProfile(): DocumentStyleProfile {
   return {
     schemaVersion: 3,
-    name: "직접 설정",
+    name: t("docStyle.profile.customName"),
+    // i18n-data-begin: HWPX style names and font family names written into the document
     roles: {
       body: {
         styleName: "바탕글",
@@ -903,6 +911,7 @@ export function defaultDocumentStyleProfile(): DocumentStyleProfile {
         paragraph: { alignment: "LEFT", lineSpacingPercent: 160, spaceBeforeHu: 300, spaceAfterHu: 100, keepWithNext: true }
       }
     },
+    // i18n-data-end
     page: {
       widthHu: 59_528,
       heightHu: 84_188,
@@ -913,11 +922,20 @@ export function defaultDocumentStyleProfile(): DocumentStyleProfile {
   };
 }
 
+/**
+ * The profile to open in the style editor for a template. A template with only a
+ * table style starts from the default profile under the template's own name, so
+ * saving does not rename the template to the default profile's name.
+ */
+export function editableDocumentStyle(template: { name: string; documentStyle?: DocumentStyleProfile }): DocumentStyleProfile {
+  return template.documentStyle ?? { ...defaultDocumentStyleProfile(), name: template.name };
+}
+
 export function documentStyleSummary(profile: DocumentStyleProfile | undefined): string {
-  if (!profile) return "문서 스타일 없음";
+  if (!profile) return t("docStyle.summary.none");
   const parts = [profile.name];
   for (const [label, role] of [
-    ["본문", "body"],
+    [t("docStyle.role.body"), "body"],
     ["H1", "h1"],
     ["H2", "h2"],
     ["H3", "h3"],
@@ -927,7 +945,7 @@ export function documentStyleSummary(profile: DocumentStyleProfile | undefined):
   ] as const) {
     const character = profile.roles[role]?.character;
     if (character?.fontFamily || character?.fontSizePt) {
-      parts.push(`${label} ${character.fontFamily || "기본"} ${character.fontSizePt || "?"}pt`);
+      parts.push(`${label} ${character.fontFamily || t("docStyle.summary.defaultFont")} ${character.fontSizePt || "?"}pt`);
     }
   }
   return parts.join(" · ");

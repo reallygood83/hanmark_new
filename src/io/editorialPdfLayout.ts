@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 export interface EditorialPdfLayout {
   mode: "single" | "two-column-a" | "two-column-b";
   columnGapMm: 8 | 10 | 12;
@@ -19,14 +21,20 @@ export function normalizeEditorialPdfLayout(value: unknown): EditorialPdfLayout 
   };
 }
 
-export const EDITORIAL_PDF_LAYOUT_CHOICES = {
-  single: "기존 1단",
-  "two-column-a": "2단 A — 전체 폭 그림",
-  "two-column-b": "2단 B — 한 단 폭 그림"
-};
+/** Dropdown labels in the interface language, keyed by stored layout mode. */
+export function editorialPdfLayoutChoices(): Record<EditorialPdfLayout["mode"], string> {
+  return {
+    single: t("pdf.layout.single"),
+    "two-column-a": t("pdf.layout.twoColumnA"),
+    "two-column-b": t("pdf.layout.twoColumnB")
+  };
+}
 
-export const EDITORIAL_PDF_TABLE_WIDTH_CHOICES = {
-  auto: "자동",
-  column: "한 단",
-  full: "본문 전체 폭"
-};
+/** Dropdown labels in the interface language, keyed by stored table width. */
+export function editorialPdfTableWidthChoices(): Record<EditorialPdfLayout["tableWidth"], string> {
+  return {
+    auto: t("pdf.tableWidth.auto"),
+    column: t("pdf.tableWidth.column"),
+    full: t("pdf.tableWidth.full")
+  };
+}

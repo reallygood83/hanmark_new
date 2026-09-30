@@ -7,13 +7,20 @@ import {
 } from "../io/exportTypes";
 import {
   editorialPdfContrastStatus,
+  editorialPdfThemeDisplayName,
   resolveEditorialPdfThemeSnapshot,
   type EditorialPdfThemeSnapshot
 } from "../io/editorialPdfTheme";
 import type { HtmlExportTheme } from "../legacy-port/settings";
 import { errorMessage } from "../utils/errors";
 import type { PreparedPdf } from "../io/pdfOutputAdapter";
-import { normalizeEditorialPdfLayout, EDITORIAL_PDF_LAYOUT_CHOICES, EDITORIAL_PDF_TABLE_WIDTH_CHOICES, type EditorialPdfLayout } from "../io/editorialPdfLayout";
+import { normalizeEditorialPdfLayout, editorialPdfLayoutChoices, editorialPdfTableWidthChoices, type EditorialPdfLayout } from "../io/editorialPdfLayout";
+import { gongmunPresetLabel, type GongmunFormOption } from "../io/gongmunExport";
+import { fillGongmunFormSelect } from "./gongmunFormSelect";
+import { GONGMUN_PRESET_PROPERTY_KEY } from "../io/gongmunProperties";
+import { templateDisplayName } from "../io/templateLibrary";
+import { t, tKey, type MessageKey } from "../i18n";
+import { setPhase } from "./motion";
 
 type HanmarkExportActionResult =
   | HanmarkExportOutcome
@@ -34,7 +41,8 @@ export interface HanmarkExportActions {
   openTemplateManager?: () => void;
   exportKordoc: (
     mode: "quick-hwpx" | "gongmun-hwpx",
-    preset?: GongmunPreset
+    preset?: GongmunPreset,
+    formId?: string
   ) => Promise<HanmarkExportActionResult>;
   runOther: (
     mode: "docx" | "html"
@@ -56,6 +64,25 @@ export interface HanmarkExportActions {
     result: HanmarkExportOutcome
   ) => Promise<void>;
   /**
+   * Official-document forms (R-026): built-in institution forms, the eight standard
+   * types, and the user's own in one list. A form decides both the type and the look.
+   */
+  gongmunForms?: () => GongmunFormOption[];
+  /** The form to start with: the active institution form, else the note's type, else the last type. */
+  currentGongmunForm?: () => string;
+  /** Makes a form active and returns its document type. */
+  selectGongmunForm?: (id: string) => Promise<GongmunPreset>;
+  /** Opens the form editor; `null` creates a form of `preset`. `changed` gets the saved id ("" after a delete). */
+  editGongmunForm?: (id: string | null, preset: GongmunPreset, changed: (id: string) => void) => void;
+  /** The document type the note asks for through its properties. */
+  notePresetHint?: () => GongmunPreset | undefined;
+  insertGongmunProperties?: (preset: GongmunPreset) => Promise<void>;
+  lintGongmun?: (preset: GongmunPreset) => void;
+  /** Opens the HWPX preview on the chosen form (`formId`) of `preset`. */
+  openGongmunPreview?: (preset: GongmunPreset, formId?: string) => Promise<void>;
+  /** Several forms at once (R-028). */
+  openGongmunBatch?: () => void;
+  /**
    * The host may reuse applyToolbarSkin() here. It places the validated light
    * and dark palette variables on this modal without coupling the modal to
    * plugin settings.
@@ -66,40 +93,30 @@ export interface HanmarkExportActions {
 interface FormatCard {
   id: HanmarkExportFormat;
   title: string;
-  description: string;
+  description: MessageKey;
 }
 
 const FORMAT_CARDS: readonly FormatCard[] = [
   {
     id: "hwpx",
     title: "HWPX",
-    description: "편집 가능한 한글 문서로 내보냅니다."
+    description: "export.card.hwpx"
   },
   {
     id: "docx",
     title: "DOCX",
-    description: "Word 문서로 내보냅니다. Pandoc이 필요합니다."
+    description: "export.card.docx"
   },
   {
     id: "html",
     title: "HTML",
-    description: "모바일 브라우저에 적합한 HTML로 내보냅니다."
+    description: "export.card.html"
   },
   {
     id: "pdf",
     title: "PDF",
-    description: "표지와 브랜드 머리말을 갖춘 Editorial PDF로 저장합니다."
+    description: "export.card.pdf"
   }
-];
-
-const PRESETS: Array<{ value: GongmunPreset; label: string }> = [
-  { value: "official", label: "기안문·시행문" },
-  { value: "report", label: "보고서" },
-  { value: "plan", label: "계획서" },
-  { value: "notice", label: "통지·안내" },
-  { value: "minutes", label: "회의록" },
-  { value: "gaejosik", label: "정부 표준 개조식" },
-  { value: "press", label: "보도자료" }
 ];
 
 type LegacyExportSelection = HanmarkExportFormat | "other";
@@ -225,14 +242,18 @@ function isPresentationResult(
 function initialFormat(
   selection: LegacyExportSelection
 ): HanmarkExportFormat {
-  // The former "기타 형식" entry opened with DOCX first.
+  // The former "other formats" entry opened with DOCX first.
   return selection === "other" ? "docx" : selection;
 }
 
 export class HanmarkExportModal extends Modal {
   private format: HanmarkExportFormat;
-  private hwpxVariant: HwpxExportVariant = "quick";
-  private gongmunPreset: GongmunPreset = "report";
+  private hwpxVariant: HwpxExportVariant;
+  private gongmunPreset: GongmunPreset;
+  /** Id of the chosen official-document form (R-026). */
+  private gongmunForm: string;
+  /** The form was chosen from the note's 공문_종류 property. */
+  private presetFromNote: boolean;
   private result: HanmarkExportOutcome | null = null;
   private busy = false;
   private preparedPdf: PreparedPdf | null = null;
@@ -242,10 +263,17 @@ export class HanmarkExportModal extends Modal {
   constructor(
     app: App,
     private readonly actions: HanmarkExportActions,
-    initialSelection: LegacyExportSelection = "hwpx"
+    initialSelection: LegacyExportSelection = "hwpx",
+    initialVariant: HwpxExportVariant = "quick"
   ) {
     super(app);
     this.format = initialFormat(initialSelection);
+    this.hwpxVariant = initialVariant;
+    const hint = actions.notePresetHint?.();
+    this.gongmunForm = actions.currentGongmunForm?.() ?? "";
+    const form = actions.gongmunForms?.().find((item) => item.id === this.gongmunForm);
+    this.gongmunPreset = form?.preset ?? hint ?? "report";
+    this.presetFromNote = form?.kind === "standard" && hint !== undefined && form.preset === hint;
     this.pdfLayout = normalizeEditorialPdfLayout(actions.activePdfLayout?.());
   }
 
@@ -262,17 +290,17 @@ export class HanmarkExportModal extends Modal {
 
     const header = contentEl.createDiv({ cls: "hanmark-export-header" });
     const heading = header.createDiv();
-    heading.createEl("h2", { text: "HanMark 내보내기" });
+    heading.createEl("h2", { text: t("export.title") });
     heading.createEl("p", {
-      text: "원하는 형식을 고른 다음 세부 옵션을 확인하세요."
+      text: t("export.subtitle")
     });
     header.createEl("small", {
       cls: "hanmark-window-size-hint",
-      text: "창 우하단을 드래그하면 크기를 조절할 수 있습니다."
+      text: t("export.resizeHint")
     });
 
     if (this.preparedPdf) {
-      contentEl.createEl("p", { text: "PDF가 준비되었습니다. 파일로 저장을 눌러 저장하세요." });
+      contentEl.createEl("p", { text: t("export.pdfReady") });
       contentEl.createEl("code", { text: this.preparedPdf.fileName });
       this.renderFooter(contentEl);
       return;
@@ -302,7 +330,7 @@ export class HanmarkExportModal extends Modal {
       cls: "hanmark-export-format-grid",
       attr: {
         role: "group",
-        "aria-label": "내보낼 파일 형식"
+        "aria-label": t("export.formatGroup")
       }
     });
 
@@ -322,7 +350,7 @@ export class HanmarkExportModal extends Modal {
       const copy = button.createSpan({ cls: "hanmark-export-format-copy" });
       copy.createEl("strong", { text: card.title });
       copy.createEl("small", {
-        text: card.description,
+        text: tKey(card.description),
         attr: { id: descriptionId }
       });
       button.onclick = () => {
@@ -335,15 +363,42 @@ export class HanmarkExportModal extends Modal {
   }
 
   private renderHwpxDetail(root: HTMLElement): void {
-    root.createEl("h3", { text: "HWPX 옵션" });
+    root.createEl("h3", { text: t("export.hwpx.heading") });
     root.createEl("p", {
       cls: "hanmark-compact-engine-line",
-      text: `Kordoc ${String(VERSION || "4.2.5")} · 외부 설치 없음 · 원격·Vault 이미지 포함`
+      text: t("export.hwpx.engine", { version: String(VERSION) })
     });
 
+    const variants = root.createDiv({
+      cls: "hanmark-export-variant-grid",
+      attr: {
+        role: "group",
+        "aria-label": t("export.hwpx.variantGroup")
+      }
+    });
+    this.variantButton(
+      variants,
+      "quick",
+      t("export.hwpx.quick.title"),
+      t("export.hwpx.quick.desc")
+    );
+    this.variantButton(
+      variants,
+      "gongmun",
+      t("export.hwpx.gongmun.title"),
+      t("export.hwpx.gongmun.desc")
+    );
+
+    if (this.hwpxVariant === "gongmun") {
+      this.renderGongmunOptions(root);
+      return;
+    }
+
+    // The document template shapes quick HWPX only; official documents take their
+    // look from the institution style instead (2.7.0 W5).
     const template = root.createDiv({ cls: "hanmark-export-template-row" });
     const templateLabel = template.createEl("label", {
-      text: "문서 템플릿",
+      text: t("export.hwpx.template"),
       attr: { for: "hanmark-export-template-select" }
     });
     templateLabel.addClass("hanmark-export-field-label");
@@ -351,7 +406,7 @@ export class HanmarkExportModal extends Modal {
       attr: { id: "hanmark-export-template-select" }
     });
     for (const item of this.actions.templateChoices()) {
-      select.createEl("option", { value: item.id, text: item.name });
+      select.createEl("option", { value: item.id, text: templateDisplayName(item) });
     }
     select.value = this.actions.activeTemplateId();
     select.disabled = this.busy;
@@ -363,45 +418,6 @@ export class HanmarkExportModal extends Modal {
       text: this.actions.activeTemplateSummary()
     });
 
-    const variants = root.createDiv({
-      cls: "hanmark-export-variant-grid",
-      attr: {
-        role: "group",
-        "aria-label": "HWPX 생성 방식"
-      }
-    });
-    this.variantButton(
-      variants,
-      "quick",
-      "빠른 HWPX",
-      "현재 템플릿으로 일반 문서를 만듭니다."
-    );
-    this.variantButton(
-      variants,
-      "gongmun",
-      "공문서 HWPX",
-      "보고서·계획서 등 공문서 프리셋을 적용합니다."
-    );
-    if (this.hwpxVariant === "gongmun") {
-      const gongmun = root.createDiv({ cls: "hanmark-export-option-row" });
-      const label = gongmun.createEl("label", {
-        text: "공문서 종류",
-        attr: { for: "hanmark-export-gongmun-preset" }
-      });
-      label.addClass("hanmark-export-field-label");
-      const preset = gongmun.createEl("select", {
-        attr: { id: "hanmark-export-gongmun-preset" }
-      });
-      for (const item of PRESETS) {
-        preset.createEl("option", { value: item.value, text: item.label });
-      }
-      preset.value = this.gongmunPreset;
-      preset.disabled = this.busy;
-      preset.onchange = () => {
-        this.gongmunPreset = preset.value as GongmunPreset;
-      };
-    }
-
     const previewDescriptionId =
       "hanmark-export-hwpx-preview-description";
     const previewRow = root.createDiv({
@@ -410,13 +426,13 @@ export class HanmarkExportModal extends Modal {
     const previewCopy = previewRow.createDiv({
       cls: "hanmark-export-preview-copy"
     });
-    previewCopy.createEl("strong", { text: "내보내기 전에 확인" });
+    previewCopy.createEl("strong", { text: t("export.hwpx.previewTitle") });
     previewCopy.createEl("small", {
-      text: "현재 템플릿과 문서 내용을 빠른 미리보기로 확인합니다.",
+      text: t("export.hwpx.previewDesc"),
       attr: { id: previewDescriptionId }
     });
     const preview = previewRow.createEl("button", {
-      text: "빠른 HWPX 미리보기",
+      text: t("preview.quick.title"),
       cls: "hanmark-export-secondary-action",
       attr: {
         type: "button",
@@ -428,6 +444,140 @@ export class HanmarkExportModal extends Modal {
       await this.actions.openPreview();
       this.close();
     };
+  }
+
+  private renderGongmunOptions(root: HTMLElement): void {
+    // One list of forms (R-026): choosing a form decides both the type and the look.
+    const forms = this.actions.gongmunForms?.() ?? [];
+    if (forms.length) {
+      const current = forms.find((form) => form.id === this.gongmunForm);
+      if (current) this.gongmunPreset = current.preset;
+      const formRow = root.createDiv({ cls: "hanmark-export-template-row" });
+      const label = formRow.createEl("label", {
+        text: t("gongmun.form.label"),
+        attr: { for: "hanmark-export-gongmun-form" }
+      });
+      label.addClass("hanmark-export-field-label");
+      const select = formRow.createEl("select", {
+        attr: { id: "hanmark-export-gongmun-form" }
+      });
+      fillGongmunFormSelect(select, forms);
+      select.value = current?.id ?? "";
+      select.disabled = this.busy || !this.actions.selectGongmunForm;
+      select.onchange = async () => {
+        try {
+          const preset = await this.actions.selectGongmunForm?.(select.value);
+          this.gongmunForm = select.value;
+          if (preset) this.gongmunPreset = preset;
+          this.presetFromNote = false;
+        } catch (error: unknown) {
+          new Notice(errorMessage(error));
+        }
+        this.render();
+      };
+      formRow.createEl("small", { text: current?.description ?? t("gongmun.form.help") });
+      const hint = this.actions.notePresetHint?.();
+      if (this.presetFromNote) {
+        formRow.createEl("small", { text: t("gongmun.form.fromNote", { key: GONGMUN_PRESET_PROPERTY_KEY }) });
+      } else if (current && current.kind !== "standard" && hint && hint !== current.preset) {
+        formRow.createEl("small", {
+          text: t("gongmun.form.noteDiffers", {
+            key: GONGMUN_PRESET_PROPERTY_KEY,
+            asked: gongmunPresetLabel(hint),
+            preset: gongmunPresetLabel(current.preset)
+          })
+        });
+      }
+      if (this.actions.editGongmunForm) {
+        const formActions = formRow.createDiv({ cls: "hanmark-export-secondary-actions" });
+        const create = formActions.createEl("button", {
+          text: t("gongmun.form.new"),
+          attr: { type: "button" }
+        });
+        create.disabled = this.busy;
+        create.onclick = () => this.actions.editGongmunForm?.(null, this.gongmunPreset, (id) => this.formChanged(id));
+        if (current?.kind === "custom") {
+          const edit = formActions.createEl("button", {
+            text: t("gongmun.form.edit"),
+            attr: { type: "button" }
+          });
+          edit.disabled = this.busy;
+          edit.onclick = () => this.actions.editGongmunForm?.(current.id, current.preset, (id) => this.formChanged(id));
+        }
+      }
+    }
+
+    if (this.actions.insertGongmunProperties) {
+      const properties = root.createDiv({ cls: "hanmark-export-preview-row" });
+      const copy = properties.createDiv({ cls: "hanmark-export-preview-copy" });
+      copy.createEl("strong", { text: t("gongmun.export.propertiesTitle") });
+      copy.createEl("small", {
+        text: t("gongmun.export.propertiesDesc", { example: "공문_기관, 공문_수신" }) // i18n-data
+      });
+      const insert = properties.createEl("button", {
+        text: t("gongmun.export.insertProperties"),
+        cls: "hanmark-export-secondary-action",
+        attr: { type: "button" }
+      });
+      insert.disabled = this.busy;
+      insert.onclick = () => void this.actions.insertGongmunProperties?.(this.gongmunPreset);
+    }
+
+    if (this.actions.lintGongmun) {
+      const lint = root.createDiv({ cls: "hanmark-export-preview-row" });
+      const copy = lint.createDiv({ cls: "hanmark-export-preview-copy" });
+      copy.createEl("strong", { text: t("gongmun.export.lint") });
+      copy.createEl("small", { text: t("gongmun.export.lintDesc") });
+      const check = lint.createEl("button", {
+        text: t("gongmun.export.lint"),
+        cls: "hanmark-export-secondary-action",
+        attr: { type: "button" }
+      });
+      check.disabled = this.busy;
+      check.onclick = () => this.actions.lintGongmun?.(this.gongmunPreset);
+    }
+
+    if (this.actions.openGongmunPreview) {
+      const previewRow = root.createDiv({ cls: "hanmark-export-preview-row" });
+      const copy = previewRow.createDiv({ cls: "hanmark-export-preview-copy" });
+      copy.createEl("strong", { text: t("gongmun.export.preview") });
+      copy.createEl("small", { text: t("gongmun.export.previewDesc") });
+      const preview = previewRow.createEl("button", {
+        text: t("gongmun.export.preview"),
+        cls: "hanmark-export-secondary-action",
+        attr: { type: "button" }
+      });
+      preview.disabled = this.busy;
+      preview.onclick = async () => {
+        await this.actions.openGongmunPreview?.(this.gongmunPreset, this.gongmunForm);
+        this.close();
+      };
+    }
+
+    const openBatch = this.actions.openGongmunBatch;
+    if (openBatch) {
+      const batchRow = root.createDiv({ cls: "hanmark-export-preview-row" });
+      const copy = batchRow.createDiv({ cls: "hanmark-export-preview-copy" });
+      copy.createEl("strong", { text: t("gongmun.batch.title") });
+      copy.createEl("small", { text: t("gongmun.batch.rowDesc") });
+      const batch = batchRow.createEl("button", {
+        text: t("gongmun.batch.open"),
+        cls: "hanmark-export-secondary-action",
+        attr: { type: "button" }
+      });
+      batch.disabled = this.busy;
+      batch.onclick = () => {
+        this.close();
+        openBatch();
+      };
+    }
+  }
+
+  /** After the form editor saves (the saved id) or deletes (""), show what is active now. */
+  private formChanged(id: string): void {
+    this.gongmunForm = id || this.actions.currentGongmunForm?.() || "";
+    this.presetFromNote = false;
+    this.render();
   }
 
   private variantButton(
@@ -454,10 +604,7 @@ export class HanmarkExportModal extends Modal {
     });
     button.disabled = this.busy || disabled;
     if (disabled) {
-      button.setAttribute(
-        "aria-label",
-        `${title}: HWP 또는 HWPX에서 가져온 노트에서만 사용할 수 있습니다`
-      );
+      button.setAttribute("aria-label", t("export.hwpx.variantDisabled", { title }));
     }
     button.onclick = () => {
       this.hwpxVariant = id;
@@ -467,14 +614,14 @@ export class HanmarkExportModal extends Modal {
   }
 
   private renderDocxDetail(root: HTMLElement): void {
-    root.createEl("h3", { text: "DOCX 옵션" });
+    root.createEl("h3", { text: t("export.docx.heading") });
     const templateName =
-      this.actions.activeWordTemplateName?.() || "현재 Word 템플릿";
+      this.actions.activeWordTemplateName?.() || t("export.docx.currentTemplate");
     const summary = root.createDiv({ cls: "hanmark-export-summary-card" });
-    summary.createSpan({ text: "적용할 Word 템플릿" });
+    summary.createSpan({ text: t("export.docx.templateLabel") });
     summary.createEl("strong", { text: templateName });
     summary.createEl("small", {
-      text: "고급 DOCX 내보내기는 Pandoc을 사용합니다. Pandoc 경로는 HanMark 설정에서 변경할 수 있습니다."
+      text: t("export.docx.note")
     });
 
     const actions = root.createDiv({
@@ -482,7 +629,7 @@ export class HanmarkExportModal extends Modal {
     });
     if (this.actions.openDocxPreview) {
       const preview = actions.createEl("button", {
-        text: "DOCX 미리보기",
+        text: t("export.docx.preview"),
         attr: { type: "button" }
       });
       preview.disabled = this.busy;
@@ -493,7 +640,7 @@ export class HanmarkExportModal extends Modal {
     }
     if (this.actions.openPandocSettings) {
       const settings = actions.createEl("button", {
-        text: "Pandoc 설정",
+        text: t("export.docx.pandocSettings"),
         attr: { type: "button" }
       });
       settings.disabled = this.busy;
@@ -505,14 +652,14 @@ export class HanmarkExportModal extends Modal {
   }
 
   private renderHtmlDetail(root: HTMLElement): void {
-    root.createEl("h3", { text: "HTML 내보내기" });
+    root.createEl("h3", { text: t("settings.html.heading") });
     root.createEl("p", {
-      text: "현재 문서를 이미지가 포함된 독립형 HTML 파일로 저장합니다. 설치가 필요 없고 모바일 브라우저에서 읽기 좋습니다."
+      text: t("export.html.desc")
     });
     if (this.actions.activeHtmlTheme && this.actions.setHtmlTheme) {
       const option = root.createDiv({ cls: "hanmark-export-option-row" });
       const label = option.createEl("label", {
-        text: "HTML 테마",
+        text: t("settings.html.theme.name"),
         attr: { for: "hanmark-export-html-theme" }
       });
       label.addClass("hanmark-export-field-label");
@@ -521,11 +668,11 @@ export class HanmarkExportModal extends Modal {
       });
       select.createEl("option", {
         value: "achmage-editorial",
-        text: "Achmage Editorial (권장)"
+        text: t("settings.html.theme.editorial")
       });
       select.createEl("option", {
         value: "classic",
-        text: "Classic (기존 스타일)"
+        text: t("settings.html.theme.classic")
       });
       select.value = this.actions.activeHtmlTheme();
       select.disabled = this.busy;
@@ -536,13 +683,11 @@ export class HanmarkExportModal extends Modal {
           await this.actions.setHtmlTheme?.(theme);
         } catch (error: unknown) {
           select.value = this.actions.activeHtmlTheme?.() ?? "achmage-editorial";
-          new Notice(
-            errorMessage(error, "HTML 테마 설정을 저장하지 못했습니다.")
-          );
+          new Notice(t("settings.html.theme.saveFailed", { detail: errorMessage(error) }));
         }
       };
       option.createEl("small", {
-        text: "Achmage Editorial은 화면·모바일·인쇄에 맞춘 기본 테마이며, Classic은 이전 HanMark HTML 모양을 유지합니다."
+        text: t("export.html.themeNote")
       });
     }
   }
@@ -550,45 +695,45 @@ export class HanmarkExportModal extends Modal {
   private renderPdfDetail(root: HTMLElement): void {
     root.createEl("h3", { text: "Achmage Editorial PDF" });
     root.createEl("p", {
-      text: "A4 첫 장은 여백 없는 52/48 HanMark Editorial 표지로 구성하고, 2쪽부터 브랜드 머리말·청록 실선·푸터·페이지 번호와 함께 본문을 자동 배치합니다."
+      text: t("export.pdf.desc")
     });
     root.createEl("small", {
       cls: "hanmark-export-native-note",
-      text: "이미지와 글꼴을 준비해 PDF를 생성합니다. 가상 PDF 프린터 없이 저장할 수 있습니다."
+      text: t("export.pdf.native")
     });
 
     const layoutRow = root.createDiv({ cls: "hanmark-export-option-row" });
-    layoutRow.createEl("label", { text: "편집 방식", attr: { for: "hanmark-pdf-layout" } });
+    layoutRow.createEl("label", { text: t("export.pdf.layout"), attr: { for: "hanmark-pdf-layout" } });
     const layout = layoutRow.createEl("select", { attr: { id: "hanmark-pdf-layout" } });
-    for (const [value, label] of Object.entries(EDITORIAL_PDF_LAYOUT_CHOICES)) {
+    for (const [value, label] of Object.entries(editorialPdfLayoutChoices())) {
       layout.createEl("option", { value, text: label });
     }
     layout.value = this.pdfLayout.mode;
     layout.disabled = this.busy;
     layout.onchange = () => { this.pdfLayout = normalizeEditorialPdfLayout({ ...this.pdfLayout, mode: layout.value }); this.render(); };
     const gapRow = root.createDiv({ cls: "hanmark-export-option-row" });
-    gapRow.createEl("label", { text: "가운데 간격", attr: { for: "hanmark-pdf-gap" } });
+    gapRow.createEl("label", { text: t("export.pdf.gap"), attr: { for: "hanmark-pdf-gap" } });
     const gap = gapRow.createEl("select", { attr: { id: "hanmark-pdf-gap" } });
     for (const mm of [8, 10, 12]) gap.createEl("option", { value: String(mm), text: `${mm}mm` });
     gap.value = String(this.pdfLayout.columnGapMm);
     gap.disabled = this.busy || this.pdfLayout.mode === "single";
     gap.onchange = () => { this.pdfLayout = normalizeEditorialPdfLayout({ ...this.pdfLayout, columnGapMm: Number(gap.value) }); };
     const tableRow = root.createDiv({ cls: "hanmark-export-option-row" });
-    tableRow.createEl("label", { text: "표 폭", attr: { for: "hanmark-pdf-table-width" } });
+    tableRow.createEl("label", { text: t("export.pdf.tableWidth"), attr: { for: "hanmark-pdf-table-width" } });
     const tableWidth = tableRow.createEl("select", { attr: { id: "hanmark-pdf-table-width" } });
-    for (const [value, label] of Object.entries(EDITORIAL_PDF_TABLE_WIDTH_CHOICES)) {
+    for (const [value, label] of Object.entries(editorialPdfTableWidthChoices())) {
       tableWidth.createEl("option", { value, text: label });
     }
     tableWidth.value = this.pdfLayout.tableWidth;
     tableWidth.disabled = this.busy || this.pdfLayout.mode === "single";
     tableWidth.onchange = () => { this.pdfLayout = normalizeEditorialPdfLayout({ ...this.pdfLayout, tableWidth: tableWidth.value }); };
-    root.createEl("small", { text: "자동: 표마다 줄바꿈과 열 너비를 살펴 한 단 또는 본문 전체 폭으로 배치합니다." });
+    root.createEl("small", { text: t("export.pdf.autoTableNote") });
     const sectionLabel = root.createEl("label", { cls: "hanmark-export-option-row" });
     const sections = sectionLabel.createEl("input", { type: "checkbox" });
     sections.checked = this.pdfLayout.sectionPageBreaks;
     sections.disabled = this.busy;
     sections.onchange = () => { this.pdfLayout.sectionPageBreaks = sections.checked; };
-    sectionLabel.createSpan({ text: "최상위 제목에서 새 페이지 시작 (연속 제목은 한 묶음)" });
+    sectionLabel.createSpan({ text: t("export.pdf.sectionBreaks") });
 
     const active = this.actions.activePdfTheme?.();
     const choices = this.actions.pdfThemeChoices?.() ?? [];
@@ -599,7 +744,7 @@ export class HanmarkExportModal extends Modal {
     const row = theme.createDiv({ cls: "hanmark-export-option-row" });
     const statusId = "hanmark-export-pdf-theme-status";
     row.createEl("label", {
-      text: "PDF 테마",
+      text: t("export.pdf.theme"),
       cls: "hanmark-export-field-label",
       attr: {
         for: "hanmark-export-pdf-theme-select",
@@ -615,7 +760,7 @@ export class HanmarkExportModal extends Modal {
     for (const snapshot of choices) {
       select.createEl("option", {
         value: snapshot.id,
-        text: snapshot.name
+        text: editorialPdfThemeDisplayName(snapshot)
       });
     }
     select.value = active.id;
@@ -629,9 +774,7 @@ export class HanmarkExportModal extends Modal {
       } catch (error) {
         select.value = previousId;
         select.disabled = this.busy;
-        new Notice(
-          `PDF 테마 선택을 저장하지 못했습니다: ${errorMessage(error)}`
-        );
+        new Notice(t("export.pdf.themeFailed", { detail: errorMessage(error) }));
       }
     };
 
@@ -652,17 +795,17 @@ export class HanmarkExportModal extends Modal {
       cls: "hanmark-export-pdf-theme-swatch",
       attr: { "aria-hidden": "true" }
     });
-    status.createEl("strong", { text: active.name });
+    status.createEl("strong", { text: editorialPdfThemeDisplayName(active) });
     status.createSpan({
       text: active.builtIn
-        ? "HanMark 2.5.5 기본 출력 보존"
+        ? t("export.pdf.builtinStatus")
         : editorialPdfContrastStatus(resolved)
     });
     const actions = theme.createDiv({
       cls: "hanmark-export-secondary-actions"
     });
     const create = actions.createEl("button", {
-      text: "새 테마",
+      text: t("export.pdf.newTheme"),
       attr: { type: "button" }
     });
     create.disabled = this.busy;
@@ -671,7 +814,7 @@ export class HanmarkExportModal extends Modal {
       this.actions.openPdfThemeManager?.("create");
     };
     const manage = actions.createEl("button", {
-      text: "편집·관리",
+      text: t("export.pdf.manageThemes"),
       attr: { type: "button" }
     });
     manage.disabled = this.busy;
@@ -686,13 +829,16 @@ export class HanmarkExportModal extends Modal {
     result: HanmarkExportOutcome
   ): void {
     const panel = root.createDiv({
-      cls: "hanmark-export-result",
+      cls: "hanmark-export-result hanmark-arrive",
       attr: {
         role: "status",
         "aria-live": "polite"
       }
     });
-    panel.createEl("strong", { text: result.delivery === "download" ? "PDF 다운로드를 요청했습니다. 저장 위치를 확인하세요." : "내보내기를 마쳤습니다." });
+    panel.createEl("strong", {
+      text: result.delivery === "download" ? t("export.result.download") : t("export.result.done"),
+      cls: "hanmark-done-mark"
+    });
     if (result.displayPath || result.fileName) {
       panel.createEl("code", {
         text: result.displayPath || result.fileName || ""
@@ -711,7 +857,7 @@ export class HanmarkExportModal extends Modal {
       this.actions.revealOutput
     ) {
       const reveal = actions.createEl("button", {
-        text: "파일 위치 보기",
+        text: t("export.result.reveal"),
         attr: { type: "button" }
       });
       reveal.onclick = async () => {
@@ -719,14 +865,14 @@ export class HanmarkExportModal extends Modal {
         try {
           await this.actions.revealOutput?.(result);
         } catch (error: unknown) {
-          new Notice(errorMessage(error, "파일 위치를 열지 못했습니다."));
+          new Notice(errorMessage(error, t("export.result.revealFailed")));
         } finally {
           if (reveal.isConnected) reveal.disabled = false;
         }
       };
     }
     const again = actions.createEl("button", {
-      text: "같은 형식 다시 내보내기",
+      text: t("export.result.again"),
       attr: { type: "button" }
     });
     again.onclick = () => {
@@ -734,7 +880,7 @@ export class HanmarkExportModal extends Modal {
       this.render();
     };
     const close = actions.createEl("button", {
-      text: "닫기",
+      text: t("common.close"),
       attr: { type: "button" }
     });
     close.onclick = () => this.close();
@@ -743,23 +889,25 @@ export class HanmarkExportModal extends Modal {
   private renderFooter(root: HTMLElement): void {
     const footer = root.createDiv({ cls: "hanmark-export-footer" });
     const execute = footer.createEl("button", {
-      text: this.busy ? "처리 중…" : this.primaryActionLabel(),
+      text: this.busy ? t("export.footer.busy") : this.primaryActionLabel(),
       cls: "mod-cta hanmark-export-primary-button",
       attr: { type: "button" }
     });
+    // The one focal point while HanMark works: a ring orbiting the primary button (R-028).
+    setPhase(execute, this.busy ? "waiting" : null);
     execute.disabled =
       this.busy ||
       (this.format === "pdf" && !this.actions.exportPdf);
     execute.onclick = () => void this.run();
 
     if (this.format === "pdf" && !this.preparedPdf) {
-      const print = footer.createEl("button", { text: "프린터로 인쇄", attr: { type: "button" } });
+      const print = footer.createEl("button", { text: t("export.footer.print"), attr: { type: "button" } });
       print.disabled = this.busy || !this.actions.exportPdf;
       print.onclick = () => { this.nativePdfPrint = true; void this.run(); };
     }
 
     const close = footer.createEl("button", {
-      text: "닫기",
+      text: t("common.close"),
       cls: "hanmark-modal-close",
       attr: { type: "button" }
     });
@@ -768,11 +916,11 @@ export class HanmarkExportModal extends Modal {
   }
 
   private primaryActionLabel(): string {
-    if (this.format === "docx") return "DOCX 내보내기";
-    if (this.format === "html") return "HTML 내보내기";
-    if (this.format === "pdf") return this.preparedPdf ? "파일로 저장" : "PDF로 저장";
-    if (this.hwpxVariant === "gongmun") return "공문서 HWPX 내보내기";
-    return "HWPX 내보내기";
+    if (this.format === "docx") return t("export.action.docx");
+    if (this.format === "html") return t("export.action.html");
+    if (this.format === "pdf") return this.preparedPdf ? t("export.action.savePdfFile") : t("export.action.savePdf");
+    if (this.hwpxVariant === "gongmun") return t("export.action.gongmun");
+    return t("export.action.hwpx");
   }
 
   private async executeSelected(): Promise<HanmarkExportActionResult> {
@@ -792,7 +940,8 @@ export class HanmarkExportModal extends Modal {
     if (this.hwpxVariant === "gongmun") {
       return this.actions.exportKordoc(
         "gongmun-hwpx",
-        this.gongmunPreset
+        this.gongmunPreset,
+        this.gongmunForm
       );
     }
     return this.actions.exportKordoc("quick-hwpx");
@@ -826,7 +975,7 @@ export class HanmarkExportModal extends Modal {
       // Preserve 2.4.3 action behavior until callers return structured results.
       if (result !== false && result !== null) super.close();
     } catch (error: unknown) {
-      new Notice(errorMessage(error, "내보내기에 실패했습니다."));
+      new Notice(errorMessage(error, t("export.failed")));
     } finally {
       this.busy = false;
       this.nativePdfPrint = false;

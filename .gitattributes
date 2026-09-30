@@ -1,0 +1,13 @@
+# Files embedded byte-for-byte into main.js must not change with the checkout OS.
+# Without this, a Windows checkout (core.autocrlf=true) embeds CRLF copies and
+# produces a different main.js than macOS/Linux for the same commit.
+word-assets/** text eol=lf
+src/io/embeddedAssets.ts text eol=lf
+
+# Binary fixtures and templates.
+*.hwpx binary
+*.hwp binary
+*.docx binary
+*.pdf binary
+*.bcmap binary
+styles.css text eol=lf

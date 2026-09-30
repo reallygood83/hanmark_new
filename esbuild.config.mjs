@@ -108,10 +108,43 @@ const PDF_FREETEXT_PASTE_METHOD =
   /  editorDivPaste\(event\) \{\r?\n[\s\S]*?\r?\n  \}\r?\n(?=  #setContent\(\) \{)/g;
 const KORDOC_COM_HELPERS =
   /\/\/ src\/hwpx\/com-fallback\.ts\r?\nimport \{ execFileSync \} from "child_process";\r?\nimport \{ platform \} from "os";\r?\nfunction isComFallbackAvailable\(\) \{[\s\S]*?\r?\n\}\r?\n(?=\r?\n\/\/ src\/)/g;
-const KORDOC_ENCRYPTED_HWPX_COM_BRANCH =
-  /      if \(isComFallbackAvailable\(\) && options\?\.filePath\) \{[\s\S]*?\r?\n      \}\r?\n(?=      throw new KordocError\("DRM )/g;
-const KORDOC_DISTRIBUTION_HWP_COM_BRANCH =
-  /    if \(isDistributionSentinel\(markdown\) && isComFallbackAvailable\(\) && options\?\.filePath\) \{[\s\S]*?\r?\n    \}\r?\n(?=    return \{ success: true, fileType: "hwp")/g;
+// Every COM call site is guarded by this condition. Branches are removed by
+// brace matching rather than by the text around them, so a Kordoc refactor of
+// neighbouring code cannot silently leave a branch behind.
+const KORDOC_COM_BRANCH_GUARD =
+  /isComFallbackAvailable\(\) && options\?\.filePath\) \{/g;
+
+/**
+ * Transform counts for the Kordoc library graph (dist/index.js and the chunks
+ * it imports). A Kordoc upgrade must be reviewed against these numbers; the
+ * build stops if the installed version or any count differs.
+ */
+export const KORDOC_HARDENING_MANIFEST = Object.freeze({
+  version: "4.15.7",
+  cfbLoaders: 2,
+  comHelpers: 1,
+  comBranches: 2,
+  pdfAssetLookups: 1,
+});
+
+export async function installedKordocVersion(cwd = process.cwd()) {
+  const manifest = JSON.parse(
+    await fsp.readFile(
+      nodePath.join(cwd, "node_modules", "kordoc", "package.json"),
+      "utf8",
+    ),
+  );
+  return String(manifest.version);
+}
+
+export function assertKordocManifestVersion(version) {
+  if (version !== KORDOC_HARDENING_MANIFEST.version) {
+    throw new Error(
+      `Installed Kordoc ${version} does not match the reviewed hardening manifest ${KORDOC_HARDENING_MANIFEST.version}. ` +
+        "Review every Kordoc transform in esbuild.config.mjs before changing the manifest.",
+    );
+  }
+}
 const DOCX_PREVIEW_NBSP_HTML =
   /^([ \t]*)elem\.innerHTML = "&nbsp;";$/gm;
 const DOCX_PREVIEW_ALT_CHUNK =
@@ -135,9 +168,10 @@ function replaceWithCount(source, pattern, replacement) {
 }
 
 /**
- * Kordoc 4.2.5 loads CFB through createRequire-generated names such as
- * require2("cfb"). Those calls would otherwise resolve next to main.js at
- * runtime. A static import keeps the HWP/HWPX parser self-contained.
+ * Kordoc loads CFB through createRequire-generated names such as
+ * require2("cfb") in the HWP 5 parser and the HWP 5 patcher. Those calls would
+ * otherwise resolve next to main.js at runtime. A static import keeps the
+ * HWP/HWPX parser self-contained.
  */
 export function injectKordocCfb(source) {
   const loaderNames = Array.from(
@@ -218,61 +252,147 @@ export function hardenKordocOptionalNativeSource(source) {
   };
 }
 
+// Absolute, forward-slash path of HanMark's embedded CMap reader, imported into
+// Kordoc's PDF parser chunk in place of its filesystem asset lookup.
+export const HANMARK_PDF_CMAP_MODULE = nodePath
+  .join(nodePath.dirname(fileURLToPath(import.meta.url)), "src", "io", "pdfCMaps.ts")
+  .split(nodePath.sep)
+  .join("/");
+
 /**
- * Kordoc resolves PDF.js CMaps and standard fonts through Node's createRequire.
- * HanMark provides PDF bytes directly and cannot ship those filesystem assets,
- * so leaving the asset map empty preserves the existing browser parser path.
+ * Kordoc resolves PDF.js CMaps and standard fonts through Node's createRequire,
+ * which cannot work inside the bundled plugin. Without CMaps PDF.js drops all text
+ * set in fonts that rely on predefined CMaps (common in Korean PDFs). Replace the
+ * lookup with HanMark's embedded Korean CMap reader: no filesystem, no network.
  */
 export function hardenKordocPdfParserSource(source) {
   const assetLookup = replaceWithCount(
     source,
     KORDOC_PDF_ASSET_CREATE_REQUIRE,
-    "",
+    [
+      "pdfjsAssets.CMapReaderFactory = __hanmarkPdfCMapReaderFactory;",
+      'pdfjsAssets.cMapUrl = "hanmark-embedded:";',
+      "pdfjsAssets.cMapPacked = true;",
+    ].join("\n"),
   );
   const createRequireImport = replaceWithCount(
     assetLookup.source,
     KORDOC_CREATE_REQUIRE_IMPORT,
     "",
   );
+  const withReader =
+    assetLookup.replacements > 0
+      ? `import { HanmarkPdfCMapReaderFactory as __hanmarkPdfCMapReaderFactory } from ${JSON.stringify(HANMARK_PDF_CMAP_MODULE)};\n${createRequireImport.source}`
+      : createRequireImport.source;
   return {
-    source: createRequireImport.source,
+    source: withReader,
     assetLookupReplacements: assetLookup.replacements,
     createRequireImportReplacements: createRequireImport.replacements,
   };
 }
 
+function skipQuoted(source, start, quote) {
+  for (let index = start + 1; index < source.length; index += 1) {
+    if (source[index] === "\\") {
+      index += 1;
+    } else if (source[index] === quote) {
+      return index;
+    }
+  }
+  throw new Error("Unterminated string literal while hardening Kordoc.");
+}
+
+function skipTemplate(source, start) {
+  for (let index = start + 1; index < source.length; index += 1) {
+    if (source[index] === "\\") {
+      index += 1;
+    } else if (source[index] === "`") {
+      return index;
+    } else if (source[index] === "$" && source[index + 1] === "{") {
+      index = findMatchingBrace(source, index + 1);
+    }
+  }
+  throw new Error("Unterminated template literal while hardening Kordoc.");
+}
+
+/** Index of the `}` that closes the `{` at openIndex (strings and comments skipped). */
+export function findMatchingBrace(source, openIndex) {
+  let depth = 0;
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '"' || char === "'") {
+      index = skipQuoted(source, index, char);
+    } else if (char === "`") {
+      index = skipTemplate(source, index);
+    } else if (char === "/" && source[index + 1] === "/") {
+      const lineEnd = source.indexOf("\n", index);
+      index = lineEnd === -1 ? source.length : lineEnd;
+    } else if (char === "/" && source[index + 1] === "*") {
+      const commentEnd = source.indexOf("*/", index + 2);
+      index = commentEnd === -1 ? source.length : commentEnd + 1;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+  throw new Error("Unbalanced braces while hardening Kordoc.");
+}
+
+/** Removes every whole-line `if (… isComFallbackAvailable() && options?.filePath) { … }` statement. */
+export function removeKordocComBranches(source) {
+  let output = "";
+  let cursor = 0;
+  let replacements = 0;
+  for (const match of source.matchAll(KORDOC_COM_BRANCH_GUARD)) {
+    const guardIndex = match.index ?? 0;
+    if (guardIndex < cursor) {
+      continue;
+    }
+    const statementStart = source.lastIndexOf("if (", guardIndex);
+    const lineStart = source.lastIndexOf("\n", statementStart) + 1;
+    if (statementStart < 0 || source.slice(lineStart, statementStart).trim() !== "") {
+      throw new Error("Kordoc COM branch is not a standalone if statement.");
+    }
+    const closeBrace = findMatchingBrace(source, guardIndex + match[0].length - 1);
+    const lineEnd = source.indexOf("\n", closeBrace);
+    if (source.slice(closeBrace + 1, lineEnd === -1 ? source.length : lineEnd).trim() !== "") {
+      throw new Error("Kordoc COM branch shares its closing line with other code.");
+    }
+    output += source.slice(cursor, lineStart);
+    cursor = lineEnd === -1 ? source.length : lineEnd + 1;
+    replacements += 1;
+  }
+  output += source.slice(cursor);
+  return { source: output, replacements };
+}
+
 /**
  * Kordoc's Windows COM fallback accepts a filesystem path and starts
  * PowerShell. HanMark only passes document bytes to parse(), so the fallback
- * is unreachable. Strip both call sites and the helper implementation before
- * bundling; exact counts deliberately stop the build if Kordoc 4.2.5 changes.
+ * is unreachable. Strip every call site and the helper implementation before
+ * bundling; KORDOC_HARDENING_MANIFEST counts stop the build if Kordoc changes.
  */
 export function hardenKordocComFallbackSource(source) {
   const hasComFallbackMarker = source.includes(
     "// src/hwpx/com-fallback.ts",
   );
-  const expected = source.includes(
+  const hasComImport = source.includes(
     'import { execFileSync } from "child_process";',
-  )
-    ? 1
-    : 0;
-  if (hasComFallbackMarker && expected === 0) {
+  );
+  if (hasComFallbackMarker && !hasComImport) {
     throw new Error(
-      "Kordoc 4.2.5 COM hardening encountered an unsupported module format.",
+      `Kordoc ${KORDOC_HARDENING_MANIFEST.version} COM hardening encountered an unsupported module format.`,
     );
   }
-  const encryptedHwpx = replaceWithCount(
-    source,
-    KORDOC_ENCRYPTED_HWPX_COM_BRANCH,
-    "",
-  );
-  const distributionHwp = replaceWithCount(
-    encryptedHwpx.source,
-    KORDOC_DISTRIBUTION_HWP_COM_BRANCH,
-    "",
-  );
+  const expectedHelpers = hasComImport ? KORDOC_HARDENING_MANIFEST.comHelpers : 0;
+  const expectedBranches = hasComImport ? KORDOC_HARDENING_MANIFEST.comBranches : 0;
+  const branches = removeKordocComBranches(source);
   const helpers = replaceWithCount(
-    distributionHwp.source,
+    branches.source,
     KORDOC_COM_HELPERS,
     `function isEncryptedHwpx(manifestXml) {
   return manifestXml.includes("encryption-data");
@@ -281,19 +401,21 @@ export function hardenKordocComFallbackSource(source) {
   );
   const counts = {
     helperReplacements: helpers.replacements,
-    encryptedHwpxBranchReplacements: encryptedHwpx.replacements,
-    distributionHwpBranchReplacements: distributionHwp.replacements,
+    comBranchReplacements: branches.replacements,
   };
-  if (Object.values(counts).some((count) => count !== expected)) {
+  if (
+    counts.helperReplacements !== expectedHelpers ||
+    counts.comBranchReplacements !== expectedBranches
+  ) {
     throw new Error(
-      `Kordoc 4.2.5 COM hardening mismatch: expected ${expected} of each transform, got ${JSON.stringify(counts)}`,
+      `Kordoc ${KORDOC_HARDENING_MANIFEST.version} COM hardening mismatch: expected ${expectedHelpers} helper module and ${expectedBranches} branches, got ${JSON.stringify(counts)}`,
     );
   }
   const residual =
     helpers.source.match(
       /\b(?:execFileSync|isComFallbackAvailable|extractTextViaCom|comResultToParseResult)\b|["'](?:node:)?child_process["']|HWPFrame\.HwpObject/u,
     )?.[0] ?? null;
-  if (expected === 1 && residual) {
+  if (hasComImport && residual) {
     throw new Error(
       `Kordoc COM fallback remained after source hardening: ${residual}`,
     );
@@ -619,9 +741,48 @@ function assertDependencyTransform(path, source) {
   }
 }
 
+export function emptyKordocHardeningTally() {
+  return {
+    loadedFiles: 0,
+    cfbLoaders: 0,
+    comHelpers: 0,
+    comBranches: 0,
+    pdfAssetLookups: 0,
+  };
+}
+
+/** Compares one build's Kordoc transform totals with the reviewed manifest. */
+export function assertKordocHardeningTally(tally) {
+  if (tally.loadedFiles === 0) {
+    return;
+  }
+  const expected = {
+    cfbLoaders: KORDOC_HARDENING_MANIFEST.cfbLoaders,
+    comHelpers: KORDOC_HARDENING_MANIFEST.comHelpers,
+    comBranches: KORDOC_HARDENING_MANIFEST.comBranches,
+    pdfAssetLookups: KORDOC_HARDENING_MANIFEST.pdfAssetLookups,
+  };
+  const actual = {
+    cfbLoaders: tally.cfbLoaders,
+    comHelpers: tally.comHelpers,
+    comBranches: tally.comBranches,
+    pdfAssetLookups: tally.pdfAssetLookups,
+  };
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(
+      `Kordoc ${KORDOC_HARDENING_MANIFEST.version} hardening totals differ from the manifest: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
+  }
+}
+
 export const kordocSourceHardeningPlugin = {
   name: "kordoc-source-hardening",
   setup(build) {
+    let tally = emptyKordocHardeningTally();
+    build.onStart(async () => {
+      tally = emptyKordocHardeningTally();
+      assertKordocManifestVersion(await installedKordocVersion());
+    });
     build.onLoad(
       { filter: /kordoc[\\/]dist[\\/].*\.(?:c?js|mjs)$/ },
       async (args) => {
@@ -630,6 +791,11 @@ export const kordocSourceHardeningPlugin = {
         const optionalNative = hardenKordocOptionalNativeSource(cfb.source);
         const pdfParser = hardenKordocPdfParserSource(optionalNative.source);
         const comFallback = hardenKordocComFallbackSource(pdfParser.source);
+        tally.loadedFiles += 1;
+        tally.cfbLoaders += cfb.replacements;
+        tally.comHelpers += comFallback.helperReplacements;
+        tally.comBranches += comFallback.comBranchReplacements;
+        tally.pdfAssetLookups += pdfParser.assetLookupReplacements;
         return {
           contents: comFallback.source,
           loader: "js",
@@ -637,6 +803,11 @@ export const kordocSourceHardeningPlugin = {
         };
       },
     );
+    build.onEnd((result) => {
+      if (result.errors.length === 0) {
+        assertKordocHardeningTally(tally);
+      }
+    });
   },
 };
 
@@ -764,7 +935,7 @@ const verifyBundledCodePlugin = {
   },
 };
 
-const options = {
+export const options = {
   banner: {
     // Kordoc calls createRequire(import.meta.url), so the CJS bundle supplies a
     // real file URL. PDF.js base64 helpers replace browser globals with Buffer.
@@ -796,6 +967,10 @@ const options = {
   outfile: outputFile,
   platform: "node",
   minify: prod,
+  // Obsidian reads main.js as UTF-8. The default ASCII charset spells every Hangul
+  // character as a six-byte \uXXXX escape; UTF-8 keeps it at three bytes (R-018:
+  // 117 KB smaller at 2.7.0 M5 with identical behavior).
+  charset: "utf8",
 };
 
 async function runBuild() {

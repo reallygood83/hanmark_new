@@ -36,4 +36,6 @@ export interface HanmarkExportOutcome {
 export interface HanmarkKordocExportOptions {
   mode: "quick-hwpx" | "gongmun-hwpx";
   gongmunPreset?: GongmunPreset;
+  /** The official-document form to use, named explicitly (R-028); else the active form. */
+  gongmunFormId?: string;
 }

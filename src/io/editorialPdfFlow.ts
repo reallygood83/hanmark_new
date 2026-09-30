@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { normalizeEditorialPdfLayout, type EditorialPdfLayout } from "./editorialPdfLayout";
 import { createPdfElement, createPdfMeasurementStyle, PdfMeasurer } from "./editorialPdfMeasure";
 import { preparePdfTable } from "./editorialPdfTables";
@@ -162,7 +163,7 @@ class PageComposer {
     const node = clone(this.units[index].node);
     const naturalWidth = Number(node.dataset.naturalWidth);
     const naturalHeight = Number(node.dataset.naturalHeight);
-    if (!(naturalWidth > 0 && naturalHeight > 0)) throw new Error("PDF 그림 크기를 확인하지 못했습니다.");
+    if (!(naturalWidth > 0 && naturalHeight > 0)) throw new Error(t("pdfExport.error.imageSize"));
     const target = this.layout.mode === "two-column-a" ? PAGE_WIDTH : this.width;
     const width = Math.min(target, (PAGE_HEIGHT - 2 * FIGURE_GAP) * naturalWidth / naturalHeight);
     const height = width * naturalHeight / naturalWidth;
@@ -301,7 +302,7 @@ class PageComposer {
     let slots: Slot[] = [];
     if (tablePending) {
       const part = this.tablePart(tablePending.node, PAGE_HEIGHT - 2 * FIGURE_GAP);
-      if (!part) throw new Error("PDF 표의 한 행을 페이지에 배치하지 못했습니다.");
+      if (!part) throw new Error(t("pdfExport.error.tableRow"));
       slots = [this.tableSlot(tablePending.index, part[0], "top")];
       if (part[1]) return { filled: { cursor: { ...start }, columns: [[], []], used: [0, 0] }, slots, skipped,
         tablePending: { index: tablePending.index, node: part[1] } };
@@ -398,7 +399,7 @@ export async function layoutEditorialPdf(
   const layout = normalizeEditorialPdfLayout(value);
   if (layout.mode === "single" && !layout.sectionPageBreaks) return;
   const body = root.querySelector<HTMLElement>(BODY);
-  if (!body) throw new Error("PDF 본문이 없습니다.");
+  if (!body) throw new Error(t("pdfExport.error.noBody"));
   sourceStyle.textContent += createEditorialPdfFlowStyles();
   if (layout.mode === "single") {
     const children = Array.from(body.children);
@@ -424,7 +425,7 @@ export async function layoutEditorialPdf(
   const pages: HTMLElement[] = [];
   try {
     const view = root.ownerDocument.defaultView;
-    if (!view) throw new Error("PDF 출력 창이 닫혔습니다.");
+    if (!view) throw new Error(t("pdfExport.error.windowClosed"));
     let tableNumber = 0;
     for (const unit of units) {
       if (unit.kind !== "table") continue;
@@ -433,15 +434,15 @@ export async function layoutEditorialPdf(
     }
     let pageNumber = 0;
     while (cursor.index < units.length || pending !== undefined || tablePending) {
-      if (!root.isConnected) throw new Error("PDF 내보내기가 취소되었습니다.");
+      if (!root.isConnected) throw new Error(t("pdfExport.cancelled"));
       const result = composer.compose(cursor, emitted, pending, tablePending);
       const occupied = composer.occupied(result.filled, result.slots);
       if (occupied <= 0 && composer.progress(result.filled.cursor) <= composer.progress(cursor)) {
-        throw new Error("PDF 한 단에 배치할 수 없는 블록이 있습니다. 표의 긴 셀이나 제목 길이를 확인하세요.");
+        throw new Error(t("pdfExport.error.blockTooLarge"));
       }
       if (occupied > 0) pages.push(composer.render(root.ownerDocument, result.filled, result.slots, ++pageNumber));
       cursor = result.filled.cursor; emitted = result.skipped; pending = result.pending; tablePending = result.tablePending;
-      if (pageNumber > 5000) throw new Error("PDF 페이지 수가 조판 한도를 초과했습니다.");
+      if (pageNumber > 5000) throw new Error(t("pdfExport.error.tooManyPages"));
       await new Promise<void>(resolve => view.setTimeout(resolve, 0));
     }
     body.replaceChildren(...pages);

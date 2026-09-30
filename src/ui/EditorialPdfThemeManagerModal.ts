@@ -12,6 +12,7 @@ import {
   duplicateEditorialPdfTheme,
   editorialPdfContrastGuidance,
   editorialPdfContrastStatus,
+  editorialPdfThemeDisplayName,
   formatEditorialPdfContrastRatio,
   listEditorialPdfThemeSnapshots,
   normalizeEditorialPdfTheme,
@@ -30,6 +31,7 @@ import {
   type EditorialPdfTitleMode,
   type ResolvedEditorialPdfTheme
 } from "../io/editorialPdfTheme";
+import { t, tKey, type MessageKey } from "../i18n";
 import { errorMessage } from "../utils/errors";
 
 export interface EditorialPdfThemeManagerOptions {
@@ -51,27 +53,25 @@ interface BuilderOptions {
 
 type ThemeTextSection = "cover" | "page";
 
-const FALLBACK_PREVIEW_FILE_TITLE = "현재 노트 파일명";
 const OVERRIDE_LABELS: ReadonlyArray<{
   token: EditorialPdfOverrideToken;
-  label: string;
-  description: string;
+  label: MessageKey;
+  description: MessageKey;
 }> = [
   {
     token: "onKey",
-    label: "키 배경 위 글자",
-    description:
-      "직접 지정하면 글자용 면 자동 보정이 꺼지고 원 키 컬러 위에 적용됩니다."
+    label: "pdfTheme.role.onKey.name",
+    description: "pdfTheme.role.onKey.desc"
   },
   {
     token: "keyInk",
-    label: "흰 종이 위 브랜드 글자",
-    description: "제목과 머리말처럼 흰 종이 위에 놓이는 브랜드 글자"
+    label: "pdfTheme.role.keyInk.name",
+    description: "pdfTheme.role.keyInk.desc"
   },
   {
     token: "accentLine",
-    label: "상·하단 포인트 선",
-    description: "본문 페이지의 위·아래 구분선"
+    label: "pdfTheme.role.accentLine.name",
+    description: "pdfTheme.role.accentLine.desc"
   }
 ];
 
@@ -124,8 +124,8 @@ function applyPalette(
 }
 
 function diagnosticLabel(item: EditorialPdfContrastDiagnostic): string {
-  return OVERRIDE_LABELS.find(({ token }) => token === item.token)?.label
-    ?? item.token;
+  const label = OVERRIDE_LABELS.find(({ token }) => token === item.token)?.label;
+  return label ? tKey(label) : item.token;
 }
 
 function renderColorChoiceExplanation(
@@ -135,41 +135,35 @@ function renderColorChoiceExplanation(
   const details = root.createEl("details", {
     cls: "hanmark-pdf-theme-contrast-explanation"
   });
-  details.createEl("summary", { text: "왜 이 색인가요?" });
+  details.createEl("summary", { text: t("pdfTheme.explain.summary") });
   const { onKeyResolution: resolution } = resolved;
   let explanation: string;
   switch (resolution.strategy) {
     case "builtin":
-      explanation =
-        "내장 테마는 HanMark 2.5.5의 키 컬러와 글자색을 그대로 유지합니다.";
+      explanation = t("pdfTheme.explain.builtin");
       break;
     case "manual-exact":
-      explanation =
-        "키 배경 위 글자를 직접 지정해 글자용 면 자동 보정이 꺼졌습니다. "
-        + "입력한 키 컬러를 그대로 사용하며, 표시된 대비는 실제 인쇄 조합의 수치입니다.";
+      explanation = t("pdfTheme.explain.manual");
       break;
     case "automatic-adjusted":
-      explanation =
-        `저장된 키 컬러 ${resolution.seed}는 바꾸지 않고, 작은 글자도 4.5:1 이상이 되도록 `
-        + `글자가 놓이는 면만 ${resolution.surface}로 미세 조정했습니다. `
-        + "밝은 글자의 경계가 더 또렷할 수 있는 대비 극성과 국소 명도는 자동 후보를 고르는 보조 신호로만 사용합니다.";
+      explanation = t("pdfTheme.explain.adjusted", {
+        seed: resolution.seed,
+        surface: resolution.surface
+      });
       break;
     case "automatic-wcag-fallback":
-      explanation =
-        "밝은 글자의 경계가 더 또렷할 수 있지만, 허용된 미세 면 보정 범위 안에서 "
-        + "일반 글자 4.5:1을 만들 수 없어 원 키 컬러와 기준을 통과하는 글자색을 사용합니다.";
+      explanation = t("pdfTheme.explain.fallback");
       break;
     case "automatic-exact":
-      explanation =
-        "원 키 컬러를 그대로 사용해도 일반 글자 4.5:1 이상이므로 별도의 글자용 면 보정 없이 글자색만 자동 적용했습니다.";
+      explanation = t("pdfTheme.explain.exact");
       break;
   }
   details.createEl("p", { text: explanation });
   details.createEl("p", {
-    text: "대비 수치는 WCAG 대비 공식에 따른 색 조합 판정이며, PDF 전체의 WCAG 준수를 뜻하지 않습니다."
+    text: t("pdfTheme.explain.wcagScope")
   });
   details.createEl("p", {
-    text: "글꼴 굵기와 화면 안티앨리어싱 때문에 실제 획은 선언 색의 계산값보다 흐리게 보일 수 있으므로 미리보기와 저장 PDF도 함께 확인하세요."
+    text: t("pdfTheme.explain.rendering")
   });
 }
 
@@ -195,10 +189,12 @@ function renderDiagnostics(
   const list = root.createEl("ul");
   for (const item of resolved.diagnostics) {
     list.createEl("li", {
-      text:
-        `${diagnosticLabel(item)} · ${formatEditorialPdfContrastRatio(item.ratio)}:1 · ` +
-        `${editorialPdfContrastGuidance(item)}` +
-        `${item.manual ? " · 직접 지정" : " · 자동"}`
+      text: t("pdfTheme.diagnostic.row", {
+        label: diagnosticLabel(item),
+        ratio: formatEditorialPdfContrastRatio(item.ratio),
+        guidance: editorialPdfContrastGuidance(item),
+        source: item.manual ? t("pdfTheme.source.manual") : t("pdfTheme.source.automatic")
+      })
     });
   }
   const hasMinimumBoundaryText = resolved.diagnostics.some(
@@ -206,7 +202,7 @@ function renderDiagnostics(
   );
   if (hasMinimumBoundaryText) {
     root.createEl("p", {
-      text: "4.5:1은 일반 글자의 최소선입니다. 수치를 통과해도 글꼴·화면에 따라 체감은 다를 수 있습니다."
+      text: t("pdfTheme.diagnostic.minimumNote")
     });
   }
   const hasLargeTextOnly = resolved.diagnostics.some(
@@ -214,12 +210,12 @@ function renderDiagnostics(
   );
   if (hasLargeTextOnly) {
     root.createEl("p", {
-      text: "3:1은 큰 글자에만 적용되는 기준입니다. 일반 글자는 4.5:1 이상이 필요합니다."
+      text: t("pdfTheme.diagnostic.largeTextNote")
     });
   }
   if (failing.length) {
     root.createEl("p", {
-      text: "직접 지정한 색은 그대로 저장·인쇄됩니다. 키 배경 위 글자를 직접 지정했다면 글자용 면 보정도 꺼집니다. 표시된 실제 비율을 확인하거나 자동 추천 적용으로 되돌리세요."
+      text: t("pdfTheme.diagnostic.manualNote")
     });
   }
   renderColorChoiceExplanation(root, resolved);
@@ -284,9 +280,9 @@ function renderPreview(
     )
   });
   const body = page.createDiv({ cls: "hanmark-pdf-theme-preview-body" });
-  body.createEl("h3", { text: "1. 대표 본문 제목" });
+  body.createEl("h3", { text: t("pdfTheme.preview.heading") });
   body.createEl("p", {
-    text: "키 컬러를 바꾸면 글자와 배경의 역할을 분리해 읽기 쉬운 색을 자동으로 계산합니다."
+    text: t("pdfTheme.preview.body")
   });
   const codeBlock = body.createEl("pre");
   codeBlock.createEl("code", { text: "const theme = \"readable\";" });
@@ -307,18 +303,18 @@ class ConfirmThemeDeleteModal extends Modal {
   }
 
   onOpen(): void {
-    this.titleEl.setText("사용자 PDF 테마 삭제");
+    this.titleEl.setText(t("pdfTheme.delete.title"));
     this.contentEl.createEl("p", {
-      text: `“${this.name}” 테마를 삭제할까요? 이미 만든 PDF에는 영향이 없습니다.`
+      text: t("pdfTheme.delete.message", { name: this.name })
     });
     const actions = this.contentEl.createDiv({ cls: "hanmark-dialog-actions" });
     const cancel = actions.createEl("button", {
-      text: "취소",
+      text: t("common.cancel"),
       attr: { type: "button" }
     });
     cancel.onclick = () => this.complete(false);
     const remove = actions.createEl("button", {
-      text: "삭제",
+      text: t("pdfTheme.manager.delete"),
       cls: "mod-warning",
       attr: { type: "button" }
     });
@@ -363,7 +359,7 @@ class PdfThemeNameModal extends Modal {
   onOpen(): void {
     const id = nextControlId("name");
     const label = this.contentEl.createEl("label", {
-      text: "테마 이름",
+      text: t("pdfTheme.name.label"),
       attr: { for: id }
     });
     label.addClass("hanmark-pdf-theme-field-label");
@@ -382,12 +378,12 @@ class PdfThemeNameModal extends Modal {
     };
     const actions = this.contentEl.createDiv({ cls: "hanmark-dialog-actions" });
     const cancel = actions.createEl("button", {
-      text: "취소",
+      text: t("common.cancel"),
       attr: { type: "button" }
     });
     cancel.onclick = () => this.close();
     const save = actions.createEl("button", {
-      text: "확인",
+      text: t("common.confirm"),
       cls: "mod-cta",
       attr: { type: "button" }
     });
@@ -406,7 +402,7 @@ class PdfThemeNameModal extends Modal {
     if (this.saving) return;
     if (!this.value.trim()) {
       input.setAttribute("aria-invalid", "true");
-      new Notice("테마 이름을 입력하세요.");
+      new Notice(t("pdfTheme.name.required"));
       input.focus();
       return;
     }
@@ -416,7 +412,7 @@ class PdfThemeNameModal extends Modal {
       this.close();
     } catch (error) {
       this.saving = false;
-      new Notice(`PDF 테마 이름을 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("pdfTheme.name.saveFailed", { detail: errorMessage(error) }));
       input.focus();
     }
   }
@@ -464,7 +460,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     contentEl.addClass("hanmark-pdf-theme-builder");
     const intro = contentEl.createDiv({ cls: "hanmark-pdf-theme-builder-intro" });
     intro.createEl("p", {
-      text: "세 단계만 확인하면 표지와 본문에 함께 적용되는 PDF 테마를 만들 수 있습니다."
+      text: t("pdfTheme.builder.intro")
     });
     this.renderStepNavigation(intro);
 
@@ -472,7 +468,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
       cls: "hanmark-pdf-theme-builder-panel",
       attr: {
         role: "region",
-        "aria-label": `${this.step + 1}단계`
+        "aria-label": t("pdfTheme.builder.stepRegion", { step: this.step + 1 })
       }
     });
     if (this.step === 0) this.renderColorStep(panel);
@@ -487,12 +483,12 @@ export class EditorialPdfThemeBuilderModal extends Modal {
   private renderStepNavigation(root: HTMLElement): void {
     const nav = root.createDiv({
       cls: "hanmark-pdf-theme-steps",
-      attr: { "aria-label": "PDF 테마 만들기 단계" }
+      attr: { "aria-label": t("pdfTheme.builder.steps") }
     });
     for (const [index, label] of [
-      "1. 키 컬러",
-      "2. 문구",
-      "3. 미리보기"
+      t("pdfTheme.builder.step.color"),
+      t("pdfTheme.builder.step.text"),
+      t("pdfTheme.builder.step.preview")
     ].entries()) {
       const button = nav.createEl("button", {
         text: label,
@@ -511,16 +507,16 @@ export class EditorialPdfThemeBuilderModal extends Modal {
   }
 
   private renderColorStep(root: HTMLElement): void {
-    root.createEl("h3", { text: "1단계 · 키 컬러 고르기" });
+    root.createEl("h3", { text: t("pdfTheme.builder.color.heading") });
     root.createEl("p", {
-      text: "브랜드 색 하나를 저장하면 글자와 선, 옅은 배경을 자동 계산합니다. 필요한 경우 저장한 색은 유지하고 글자가 놓이는 면만 미세 조정합니다."
+      text: t("pdfTheme.builder.color.desc")
     });
     this.renderNameField(root);
 
     const field = root.createDiv({ cls: "hanmark-pdf-theme-color-field" });
     const id = nextControlId("key-color");
     field.createEl("label", {
-      text: "키 컬러",
+      text: t("pdfTheme.field.keyColor"),
       cls: "hanmark-pdf-theme-field-label",
       attr: { for: id }
     });
@@ -529,7 +525,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
       value: this.draft.colors.key,
       attr: {
         id,
-        "aria-label": "키 컬러 선택",
+        "aria-label": t("pdfTheme.builder.color.picker"),
         "data-hanmark-autofocus": "true"
       }
     });
@@ -537,14 +533,14 @@ export class EditorialPdfThemeBuilderModal extends Modal {
       type: "text",
       value: this.keyInput,
       attr: {
-        "aria-label": "키 컬러 6자리 HEX",
+        "aria-label": t("pdfTheme.builder.color.hex"),
         spellcheck: "false",
         inputmode: "text"
       }
     });
     hex.maxLength = 7;
     const help = field.createEl("small", {
-      text: "# 뒤에 6자리 HEX를 입력하거나 색상 선택기를 드래그하세요."
+      text: t("pdfTheme.builder.color.help")
     });
     const diagnostic = root.createDiv({ cls: "hanmark-pdf-theme-diagnostics" });
     const refresh = (): void => {
@@ -553,8 +549,8 @@ export class EditorialPdfThemeBuilderModal extends Modal {
       hex.setAttribute("aria-invalid", String(invalid));
       help.setText(
         invalid
-          ? "키 컬러는 #RRGGBB 형식이어야 합니다."
-          : `${canonical} · 이 키 컬러는 그대로 저장되며, 글자용 면은 필요할 때만 미세 조정됩니다.`
+          ? t("pdfTheme.builder.color.invalid")
+          : t("pdfTheme.builder.color.valid", { color: canonical })
       );
       if (!canonical) {
         diagnostic.empty();
@@ -567,7 +563,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
             "aria-atomic": "true"
           }
         });
-        status.createEl("strong", { text: "올바른 HEX를 입력하세요." });
+        status.createEl("strong", { text: t("pdfTheme.builder.color.enterHex") });
         return;
       }
       this.draft.colors.key = canonical;
@@ -590,7 +586,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     const field = root.createDiv({ cls: "hanmark-pdf-theme-text-field" });
     const id = nextControlId("builder-name");
     field.createEl("label", {
-      text: "테마 이름",
+      text: t("pdfTheme.name.label"),
       cls: "hanmark-pdf-theme-field-label",
       attr: { for: id }
     });
@@ -608,30 +604,30 @@ export class EditorialPdfThemeBuilderModal extends Modal {
 
   private renderTextStep(root: HTMLElement): void {
     const heading = root.createEl("h3", {
-      text: "2단계 · 표지와 머리말 문구"
+      text: t("pdfTheme.builder.text.heading")
     });
     heading.tabIndex = -1;
     heading.setAttribute("data-hanmark-autofocus", "true");
     root.createEl("p", {
-      text: "문구를 비우면 글자만 숨고 PDF의 안정적인 자리와 여백은 그대로 유지됩니다."
+      text: t("pdfTheme.builder.text.desc")
     });
     const columns = root.createDiv({ cls: "hanmark-pdf-theme-text-columns" });
     const cover = columns.createDiv();
-    cover.createEl("h4", { text: "표지" });
-    this.textField(cover, "상단 문구", "cover", "kicker", EDITORIAL_PDF_THEME_LIMITS.coverText);
-    this.textField(cover, "에디션", "cover", "edition", EDITORIAL_PDF_THEME_LIMITS.coverText);
-    this.titleModeField(cover, "표지 제목", "cover");
-    this.textField(cover, "부제", "cover", "subtitle", EDITORIAL_PDF_THEME_LIMITS.coverText);
-    this.textField(cover, "브랜드", "cover", "brand", EDITORIAL_PDF_THEME_LIMITS.coverText);
-    this.textField(cover, "시스템", "cover", "system", EDITORIAL_PDF_THEME_LIMITS.coverText);
-    this.textField(cover, "상세 문구", "cover", "detail", EDITORIAL_PDF_THEME_LIMITS.coverText);
+    cover.createEl("h4", { text: t("pdfTheme.builder.text.cover") });
+    this.textField(cover, t("pdfTheme.builder.text.kicker"), "cover", "kicker", EDITORIAL_PDF_THEME_LIMITS.coverText);
+    this.textField(cover, t("pdfTheme.builder.text.edition"), "cover", "edition", EDITORIAL_PDF_THEME_LIMITS.coverText);
+    this.titleModeField(cover, t("pdfTheme.field.coverTitle"), "cover");
+    this.textField(cover, t("pdfTheme.builder.text.subtitle"), "cover", "subtitle", EDITORIAL_PDF_THEME_LIMITS.coverText);
+    this.textField(cover, t("pdfTheme.builder.text.brand"), "cover", "brand", EDITORIAL_PDF_THEME_LIMITS.coverText);
+    this.textField(cover, t("pdfTheme.builder.text.system"), "cover", "system", EDITORIAL_PDF_THEME_LIMITS.coverText);
+    this.textField(cover, t("pdfTheme.builder.text.detail"), "cover", "detail", EDITORIAL_PDF_THEME_LIMITS.coverText);
     this.tagsField(cover);
 
     const page = columns.createDiv();
-    page.createEl("h4", { text: "두 번째 장부터" });
-    this.textField(page, "왼쪽 머리말", "page", "headerLeft", EDITORIAL_PDF_THEME_LIMITS.pageText);
-    this.titleModeField(page, "오른쪽 머리말", "page");
-    this.textField(page, "왼쪽 꼬리말", "page", "footerLeft", EDITORIAL_PDF_THEME_LIMITS.pageText);
+    page.createEl("h4", { text: t("pdfTheme.builder.text.pages") });
+    this.textField(page, t("pdfTheme.field.headerLeft"), "page", "headerLeft", EDITORIAL_PDF_THEME_LIMITS.pageText);
+    this.titleModeField(page, t("pdfTheme.field.headerRight"), "page");
+    this.textField(page, t("pdfTheme.field.footerLeft"), "page", "footerLeft", EDITORIAL_PDF_THEME_LIMITS.pageText);
     const id = nextControlId("page-number");
     const toggle = page.createEl("label", {
       cls: "hanmark-pdf-theme-toggle",
@@ -645,7 +641,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     checkbox.onchange = () => {
       this.draft.page.showPageNumber = checkbox.checked;
     };
-    toggle.createSpan({ text: "쪽번호 표시" });
+    toggle.createSpan({ text: t("pdfTheme.builder.text.pageNumber") });
   }
 
   private textField(
@@ -674,7 +670,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     input.oninput = () => {
       values[key] = input.value;
     };
-    field.createEl("small", { text: `비워 둘 수 있음 · 최대 ${maximum}글자` });
+    field.createEl("small", { text: t("pdfTheme.builder.text.limit", { count: maximum }) });
   }
 
   private titleModeField(
@@ -693,9 +689,9 @@ export class EditorialPdfThemeBuilderModal extends Modal {
       attr: { for: id }
     });
     const select = field.createEl("select", { attr: { id } });
-    select.createEl("option", { value: "file-title", text: "파일명 사용" });
-    select.createEl("option", { value: "custom", text: "직접 입력" });
-    select.createEl("option", { value: "blank", text: "비움" });
+    select.createEl("option", { value: "file-title", text: t("pdfTheme.builder.titleMode.file") });
+    select.createEl("option", { value: "custom", text: t("pdfTheme.builder.titleMode.custom") });
+    select.createEl("option", { value: "blank", text: t("pdfTheme.builder.titleMode.blank") });
     select.value = mode;
     if (mode === "custom") {
       const input = field.createEl("input", {
@@ -703,7 +699,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
         value: section === "cover"
           ? this.draft.cover.titleText
           : this.draft.page.headerRightText,
-        attr: { "aria-label": `${labelText} 직접 입력` }
+        attr: { "aria-label": t("pdfTheme.builder.titleMode.customInput", { label: labelText }) }
       });
       input.maxLength = section === "cover"
         ? EDITORIAL_PDF_THEME_LIMITS.coverTitle * 2
@@ -725,7 +721,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     const id = nextControlId("tags");
     const field = root.createDiv({ cls: "hanmark-pdf-theme-text-field" });
     field.createEl("label", {
-      text: "해시태그",
+      text: t("pdfTheme.builder.text.tags"),
       cls: "hanmark-pdf-theme-field-label",
       attr: { for: id }
     });
@@ -742,30 +738,30 @@ export class EditorialPdfThemeBuilderModal extends Modal {
         .slice(0, EDITORIAL_PDF_THEME_LIMITS.tagCount);
     };
     field.createEl("small", {
-      text: `쉼표로 구분 · 최대 ${EDITORIAL_PDF_THEME_LIMITS.tagCount}개 · 모두 지울 수 있음`
+      text: t("pdfTheme.builder.text.tagsHint", { count: EDITORIAL_PDF_THEME_LIMITS.tagCount })
     });
   }
 
   private renderPreviewStep(root: HTMLElement): void {
     const heading = root.createEl("h3", {
-      text: "3단계 · 미리보기와 가독성 확인"
+      text: t("pdfTheme.builder.preview.heading")
     });
     heading.tabIndex = -1;
     heading.setAttribute("data-hanmark-autofocus", "true");
     root.createEl("p", {
-      text: "실제 인쇄를 열지 않는 대표 미리보기입니다. 같은 팔레트 계산기가 최종 PDF에도 사용됩니다."
+      text: t("pdfTheme.builder.preview.desc")
     });
     const preview = root.createDiv({ cls: "hanmark-pdf-theme-preview" });
     const diagnostic = root.createDiv({ cls: "hanmark-pdf-theme-diagnostics" });
     const advanced = root.createEl("details", {
       cls: "hanmark-pdf-theme-advanced"
     });
-    advanced.createEl("summary", { text: "고급 색상 3개 직접 지정" });
+    advanced.createEl("summary", { text: t("pdfTheme.builder.override.summary") });
     advanced.createEl("p", {
-      text: "자동 설정은 일반 글자 4.5:1을 우선합니다. 브랜드 규정상 직접 지정해야 할 때만 변경하세요. 낮은 대비도 저장되며 실제 수치와 경고가 계속 표시됩니다."
+      text: t("pdfTheme.builder.override.desc")
     });
     for (const item of OVERRIDE_LABELS) {
-      this.renderOverrideField(advanced, item.token, item.label, item.description);
+      this.renderOverrideField(advanced, item.token, tKey(item.label), tKey(item.description));
     }
     const refresh = (): void => {
       const resolved = resolveEditorialPdfTheme(this.draft);
@@ -792,7 +788,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     const active = this.draft.colors.overrides[token] !== null;
     if (!active) {
       const useCustom = row.createEl("button", {
-        text: "직접 지정",
+        text: t("pdfTheme.builder.override.custom"),
         attr: { type: "button" }
       });
       useCustom.onclick = () => {
@@ -810,19 +806,19 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     const picker = controls.createEl("input", {
       type: "color",
       value: this.draft.colors.overrides[token] ?? "#000000",
-      attr: { id, "aria-label": `${labelText} 색상 선택` }
+      attr: { id, "aria-label": t("pdfTheme.builder.override.picker", { label: labelText }) }
     });
     const hex = controls.createEl("input", {
       type: "text",
       value: this.overrideInputs[token],
       attr: {
-        "aria-label": `${labelText} 6자리 HEX`,
+        "aria-label": t("pdfTheme.builder.override.hex", { label: labelText }),
         spellcheck: "false"
       }
     });
     hex.maxLength = 7;
     const reset = controls.createEl("button", {
-      text: "자동 추천 적용",
+      text: t("pdfTheme.builder.override.reset"),
       attr: { type: "button" }
     });
     const ratio = row.createSpan({ cls: "hanmark-pdf-theme-override-ratio" });
@@ -830,7 +826,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
       const canonical = canonicalEditorialPdfHex(this.overrideInputs[token]);
       hex.setAttribute("aria-invalid", String(canonical === null));
       if (!canonical) {
-        ratio.setText("올바른 #RRGGBB 색상을 입력하세요.");
+        ratio.setText(t("pdfTheme.builder.override.invalid"));
         ratio.addClass("has-warning");
         return;
       }
@@ -867,14 +863,14 @@ export class EditorialPdfThemeBuilderModal extends Modal {
   private renderFooter(root: HTMLElement): void {
     const footer = root.createDiv({ cls: "hanmark-pdf-theme-builder-footer" });
     const cancel = footer.createEl("button", {
-      text: "취소",
+      text: t("common.cancel"),
       attr: { type: "button" }
     });
     cancel.disabled = this.saving;
     cancel.onclick = () => this.close();
     if (this.step > 0) {
       const previous = footer.createEl("button", {
-        text: "이전",
+        text: t("pdfTheme.builder.previous"),
         attr: { type: "button" }
       });
       previous.disabled = this.saving;
@@ -885,7 +881,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     }
     if (this.step < 2) {
       const next = footer.createEl("button", {
-        text: "다음",
+        text: t("pdfTheme.builder.next"),
         cls: "mod-cta",
         attr: { type: "button" }
       });
@@ -897,7 +893,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
       };
     } else {
       const save = footer.createEl("button", {
-        text: this.saving ? "저장 중…" : "테마 저장",
+        text: this.saving ? t("pdfTheme.builder.saving") : t("pdfTheme.builder.save"),
         cls: "mod-cta",
         attr: { type: "button" }
       });
@@ -925,7 +921,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
       for (const { token } of OVERRIDE_LABELS) {
         if (this.draft.colors.overrides[token] === null) continue;
         const canonical = canonicalEditorialPdfHex(this.overrideInputs[token]);
-        if (!canonical) throw new Error("고급 색상 HEX를 확인하세요.");
+        if (!canonical) throw new Error(t("pdfTheme.builder.overrideHexInvalid"));
         this.draft.colors.overrides[token] = canonical;
       }
       await this.options.save(
@@ -936,7 +932,7 @@ export class EditorialPdfThemeBuilderModal extends Modal {
     } catch (error) {
       this.saving = false;
       this.render();
-      new Notice(`PDF 테마를 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("pdfTheme.builder.saveFailed", { detail: errorMessage(error) }));
     }
   }
 }
@@ -971,7 +967,7 @@ export class EditorialPdfThemeManagerModal extends Modal {
   }
 
   private render(): void {
-    this.titleEl.setText("Editorial PDF 테마");
+    this.titleEl.setText(t("pdfTheme.manager.title"));
     const library = this.options.getLibrary();
     const snapshots = listEditorialPdfThemeSnapshots(library);
     if (!snapshots.some(({ id }) => id === this.selectedId)) {
@@ -984,12 +980,12 @@ export class EditorialPdfThemeManagerModal extends Modal {
     contentEl.empty();
     contentEl.addClass("hanmark-pdf-theme-manager");
     contentEl.createEl("p", {
-      text: "기본 테마는 수정되지 않습니다. 내 테마를 만들고 선택하면 이 Vault의 다음 PDF 내보내기에도 기억됩니다."
+      text: t("pdfTheme.manager.desc")
     });
 
     const list = contentEl.createDiv({
       cls: "hanmark-pdf-theme-list",
-      attr: { role: "radiogroup", "aria-label": "PDF 테마 목록" }
+      attr: { role: "radiogroup", "aria-label": t("pdfTheme.manager.list") }
     });
     for (const snapshot of snapshots) {
       const resolved = resolveEditorialPdfThemeSnapshot(snapshot);
@@ -1013,16 +1009,16 @@ export class EditorialPdfThemeManagerModal extends Modal {
         attr: { "aria-hidden": "true" }
       });
       const info = label.createSpan({ cls: "hanmark-pdf-theme-row-copy" });
-      info.createEl("strong", { text: snapshot.name });
+      info.createEl("strong", { text: editorialPdfThemeDisplayName(snapshot) });
       const rowStatus = snapshot.builtIn
-        ? "내장 · HanMark 2.5.5 원본 출력 유지"
+        ? t("pdfTheme.manager.builtinRow")
         : editorialPdfContrastStatus(resolved);
       info.createEl("small", {
         text: rowStatus,
         attr: { title: rowStatus }
       });
       if (snapshot.id === active.id) {
-        label.createSpan({ text: "사용 중", cls: "hanmark-template-active" });
+        label.createSpan({ text: t("pdfTheme.manager.active"), cls: "hanmark-template-active" });
       }
     }
 
@@ -1037,10 +1033,10 @@ export class EditorialPdfThemeManagerModal extends Modal {
       cls: "hanmark-pdf-theme-swatch",
       attr: { "aria-hidden": "true" }
     });
-    status.createEl("strong", { text: selected.name });
+    status.createEl("strong", { text: editorialPdfThemeDisplayName(selected) });
     status.createSpan({
       text: selected.builtIn
-        ? "기본 출력 보존"
+        ? t("pdfTheme.manager.builtinStatus")
         : editorialPdfContrastStatus(selectedResolved)
     });
 
@@ -1055,7 +1051,7 @@ export class EditorialPdfThemeManagerModal extends Modal {
   ): void {
     const actions = root.createDiv({ cls: "hanmark-pdf-theme-actions" });
     const apply = actions.createEl("button", {
-      text: selected.id === activeId ? "사용 중" : "적용",
+      text: selected.id === activeId ? t("pdfTheme.manager.active") : t("pdfTheme.manager.apply"),
       cls: "mod-cta",
       attr: { type: "button" }
     });
@@ -1063,21 +1059,21 @@ export class EditorialPdfThemeManagerModal extends Modal {
     apply.onclick = () => void this.applySelected(selected.id);
 
     const edit = actions.createEl("button", {
-      text: selected.builtIn ? "복제 후 편집" : "편집",
+      text: selected.builtIn ? t("pdfTheme.manager.duplicateEdit") : t("pdfTheme.manager.edit"),
       attr: { type: "button" }
     });
     edit.disabled = this.busy;
     edit.onclick = () => this.openBuilder(selected);
 
     const duplicate = actions.createEl("button", {
-      text: "복제",
+      text: t("pdfTheme.manager.duplicate"),
       attr: { type: "button" }
     });
     duplicate.disabled = this.busy;
     duplicate.onclick = () => void this.duplicateSelected(selected);
 
     const exportButton = actions.createEl("button", {
-      text: "JSON 내보내기",
+      text: t("pdfTheme.manager.exportJson"),
       attr: { type: "button" }
     });
     exportButton.disabled = this.busy;
@@ -1085,13 +1081,13 @@ export class EditorialPdfThemeManagerModal extends Modal {
 
     if (!selected.builtIn) {
       const rename = actions.createEl("button", {
-        text: "이름 변경",
+        text: t("pdfTheme.manager.rename"),
         attr: { type: "button" }
       });
       rename.disabled = this.busy;
       rename.onclick = () => this.renameSelected(selected);
       const remove = actions.createEl("button", {
-        text: "삭제",
+        text: t("pdfTheme.manager.delete"),
         cls: "mod-warning",
         attr: { type: "button" }
       });
@@ -1103,20 +1099,20 @@ export class EditorialPdfThemeManagerModal extends Modal {
   private renderLibraryActions(root: HTMLElement): void {
     const actions = root.createDiv({ cls: "hanmark-pdf-theme-library-actions" });
     const create = actions.createEl("button", {
-      text: "새 테마",
+      text: t("export.pdf.newTheme"),
       cls: "mod-cta",
       attr: { type: "button" }
     });
     create.disabled = this.busy;
     create.onclick = () => this.openBuilder();
     const importButton = actions.createEl("button", {
-      text: "JSON 가져오기",
+      text: t("pdfTheme.manager.importJson"),
       attr: { type: "button" }
     });
     importButton.disabled = this.busy;
     importButton.onclick = () => void this.importTheme();
     const close = actions.createEl("button", {
-      text: "닫기",
+      text: t("common.close"),
       attr: { type: "button" }
     });
     close.disabled = this.busy;
@@ -1130,7 +1126,9 @@ export class EditorialPdfThemeManagerModal extends Modal {
       ? source.name
       : availableEditorialPdfThemeName(
           library,
-          source ? `${source.name} 복사본` : "새 사용자 PDF 테마"
+          source
+            ? t("pdfTheme.copyName", { name: editorialPdfThemeDisplayName(source) })
+            : t("pdfTheme.manager.newName")
         );
     const initialTheme = source?.theme
       ?? activeEditorialPdfThemeSnapshot(library).theme;
@@ -1139,8 +1137,8 @@ export class EditorialPdfThemeManagerModal extends Modal {
       initialTheme,
       previewFileTitle:
         this.app.workspace.getActiveFile()?.basename.trim()
-        || FALLBACK_PREVIEW_FILE_TITLE,
-      title: isEdit ? "PDF 테마 편집" : "새 PDF 테마",
+        || t("pdfTheme.builder.previewFileTitle"),
+      title: isEdit ? t("pdfTheme.manager.editTitle") : t("pdfTheme.manager.newTitle"),
       save: async (name, theme) => {
         let next: EditorialPdfThemeLibraryV1;
         let selectedId: string;
@@ -1177,7 +1175,7 @@ export class EditorialPdfThemeManagerModal extends Modal {
     await this.runBusy(async () => {
       await this.persist(setActiveEditorialPdfTheme(this.options.getLibrary(), id));
       this.selectedId = id;
-      new Notice("PDF 테마를 이 Vault의 기본 선택으로 적용했습니다.");
+      new Notice(t("pdfTheme.manager.applied"));
     });
   }
 
@@ -1191,14 +1189,14 @@ export class EditorialPdfThemeManagerModal extends Modal {
       );
       await this.persist(result.library);
       this.selectedId = result.record.id;
-      new Notice(`PDF 테마를 복제했습니다: ${result.record.name}`);
+      new Notice(t("pdfTheme.manager.duplicated", { name: result.record.name }));
     });
   }
 
   private renameSelected(selected: EditorialPdfThemeSnapshot): void {
     new PdfThemeNameModal(
       this.app,
-      "PDF 테마 이름 변경",
+      t("pdfTheme.manager.renameTitle"),
       selected.name,
       async (name) => {
         const result = renameEditorialPdfTheme(
@@ -1224,14 +1222,14 @@ export class EditorialPdfThemeManagerModal extends Modal {
       );
       await this.persist(next);
       this.selectedId = activeEditorialPdfThemeSnapshot(next).id;
-      new Notice(`PDF 테마를 삭제했습니다: ${selected.name}`);
+      new Notice(t("pdfTheme.manager.deleted", { name: selected.name }));
     });
   }
 
   private async importTheme(): Promise<void> {
     await this.runBusy(async () => {
       const [file] = await this.options.fileGateway.pickFiles({
-        title: "HanMark PDF 테마 JSON 가져오기",
+        title: t("pdfTheme.manager.importTitle"),
         extensions: ["json"],
         maxFiles: 1,
         maxFileBytes: EDITORIAL_PDF_THEME_MAX_JSON_BYTES,
@@ -1247,7 +1245,7 @@ export class EditorialPdfThemeManagerModal extends Modal {
       await this.persist(created.library);
       this.selectedId = created.record.id;
       new Notice(
-        `PDF 테마를 가져왔습니다: ${created.record.name}. 적용 버튼을 누르면 사용합니다.`
+        t("pdfTheme.manager.imported", { name: created.record.name })
       );
     });
   }
@@ -1265,7 +1263,7 @@ export class EditorialPdfThemeManagerModal extends Modal {
         safeThemeFilename(selected)
       );
       if (!result.cancelled) {
-        new Notice(`PDF 테마를 내보냈습니다: ${result.fileName}`);
+        new Notice(t("pdfTheme.manager.exported", { fileName: result.fileName }));
       }
     });
   }
@@ -1282,7 +1280,7 @@ export class EditorialPdfThemeManagerModal extends Modal {
     try {
       await action();
     } catch (error) {
-      new Notice(`PDF 테마 작업을 완료하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("pdfTheme.manager.failed", { detail: errorMessage(error) }));
     } finally {
       this.busy = false;
       if (this.contentEl.isConnected) this.render();
@@ -1296,7 +1294,7 @@ export function activeEditorialPdfThemeSummary(
   const snapshot = activeEditorialPdfThemeSnapshot(library);
   const resolved = resolveEditorialPdfThemeSnapshot(snapshot);
   if (snapshot.id === BUILTIN_EDITORIAL_PDF_THEME_ID) {
-    return `${snapshot.name} · 기본 출력 보존`;
+    return `${editorialPdfThemeDisplayName(snapshot)} · ${t("pdfTheme.manager.builtinStatus")}`;
   }
   return `${snapshot.name} · ${editorialPdfContrastStatus(resolved)}`;
 }

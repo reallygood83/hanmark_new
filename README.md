@@ -2,7 +2,7 @@
 
 **A desktop Obsidian plugin that connects durable Markdown notes with editable Korean HWP/HWPX documents.**
 
-HanMark 2.6.1 uses exactly pinned **Kordoc 4.2.5** for HWPX generation, import, legacy source patching, validation, image embedding, document styles, and fast SVG preview. Creating HWPX files, self-contained HTML, and Editorial PDF requires no Python, pypandoc-hwpx, Pandoc, or executable-path setup.
+HanMark 2.7.0 uses exactly pinned **Kordoc 4.15.7** for import, HWPX generation (quick and official documents), validation, image embedding, document styles, document comparison, form filling, and fast SVG preview. Creating HWPX files, self-contained HTML, and Editorial PDF requires no Python, pypandoc-hwpx, Pandoc, or executable-path setup. Everything runs offline and uses no AI tokens.
 
 > Keep the source of knowledge in portable Markdown. Produce HWPX, DOCX, HTML, or PDF when an institution requires it.
 
@@ -12,7 +12,27 @@ HanMark 2.6.1 uses exactly pinned **Kordoc 4.2.5** for HWPX generation, import, 
 
 ## English
 
-### New in 2.6.1
+### New in 2.7.0
+
+- **New engine, better imports:** Kordoc 4.15.7 keeps nested tables, captions, and footnotes, gives HWP 5 and HWPX the same Markdown, restores two-column text, tables, headings, and footnotes from PDF, and reports real page numbers. Korean PDFs that use Adobe CMaps (KSC, UniKS) no longer lose their text: 24 Korean CMaps are built in.
+- **Import from anywhere:** a ribbon icon, right-click on one or many files in the file explorer, and drag-and-drop of files and whole folders. Four presets (standard, text only, forms, exam paper or notice PDF), a page range, and advanced options. Choose where new notes go. Password-protected HWPX files ask for the password, which is kept in memory only. A report shows warnings with page numbers, links to each new note, and buttons to retry. Large files ask first, and a batch can be stopped between files.
+- **Hangul document viewer:** open `.hwp` and `.hwpx` files inside Obsidian (read-only) and convert, compare, or make a form note from the viewer.
+- **Stronger HWPX:** real footnotes that Hancom Office numbers, clickable hyperlinks, and long tables that split across pages with the header row repeated. The same note always produces the same file.
+- **Official documents:** eight types (the ministry briefing is new), chosen with the Hallym University forms and your own forms from one form list, institution styles with a live preview, cover, approval, heading, and closing blocks filled from note properties (Korean keys such as `공문_수신` or English aliases such as `gongmun-to`), a button that inserts the properties a type needs, an official-style notation check, and a preview. The note's headings become the document's levels (for example 1. → 가. → 1) in a draft letter), and a note without a `#` title uses its file name.
+- **Built-in Hallym University forms:** Ilsong College of Liberal Arts minutes and meeting materials, and the AI Convergence Research Institute interim report, listed first in the form list.
+- **HWPX preview toolbar:** switch between quick HWPX and any official-document form, refresh, and save as HWPX from the preview; it reopens the way it was last used.
+- **Note assembly:** `![[note]]`, `![[note#heading]]`, and `![[note#^block]]` embeds are exported as their actual content in every format and in the preview. Cycles and missing notes are marked. It can be turned off in settings.
+- **Old–new comparison table (신구대조표):** compare two versions of a document (HWP, HWPX, PDF, DOCX, or XLSX, mixed as you like) and get a note with a table of what changed, changed words in bold. Export that note to HWPX or DOCX to submit it.
+- **Fill a form:** turn an HWPX form (click-here fields, label cells, or rows under a header) or a built-in standard draft letter into a form note, type values into its properties, and save a filled copy. The form itself is never changed.
+- **Footnotes in HTML and PDF.**
+- **English interface:** HanMark follows Obsidian's language and can be fixed to Korean or English in settings. Notes without Hangul get English labels in the exported document.
+- **Font guide:** HWPX keeps the template's font names on every computer. HanMark shows which fonts are missing on this computer, what the preview uses instead, and where to get them. Substitutions can be saved per template when you want them.
+- **Notes imported by older versions:** saving in the original format now always creates a new HWPX from the note; the original file is never patched.
+- **Finishing touches:** the toolbar folds into a slim strip and stays on one line in every pane; the HWPX and DOCX previews keep their place while redrawing, page, zoom, and follow the heading you are editing; the status bar counts characters the Korean way (with and without spaces, 200-character manuscript sheets) and shows the note's form; empty tabs offer import, a new note, and recent exports.
+- **Official-document files named after their form** (`무제 - 업무보고.hwpx`), export to several forms at once, and a remembered form per note.
+- See the [2.7.0 notes](release-notes/2.7.0.md) for behavior changes and validation.
+
+### What changed in 2.6.1
 
 - **Direct PDF save:** generate the PDF, then choose **파일로 저장**. Native printing remains a separate action.
 - **Journal layout:** two-column A uses full-width figures; B uses column-width figures. Both place nearby figures to reduce empty space.
@@ -20,18 +40,11 @@ HanMark 2.6.1 uses exactly pinned **Kordoc 4.2.5** for HWPX generation, import, 
 - **Independent section breaks:** optionally start each top-level heading group on a fresh page. The default remains single-column with this option off.
 - See [2.6.1 notes and validation limits](release-notes/2.6.1.md). macOS hardware testing was waived by the maintainer; macOS CI remains enabled.
 
-### What changed in 2.5.6
-
-- **Custom PDF theme library:** keep the immutable Achmage HanMark design or create, duplicate, rename, edit, select, and delete any number of named PDF themes per Vault.
-- **One-color safe palette:** the six-digit key color saved in the theme, picker, and JSON remains exact. In automatic mode only, HanMark may use a slightly darker surface behind text—limited by the product to an OKLab distance (`ΔEOK`) of `0.02`—and adopts it only when the final color pair reaches the WCAG `4.5:1` minimum. If it cannot, the exact key surface and a safe foreground are used instead.
-- **Simple control with an escape hatch:** three advanced foreground/rule colors can be overridden. Manually choosing the text on the key background switches off that surface correction and returns to the exact key color. Low contrast remains allowed with a visible ratio warning instead of silently replacing a required brand color.
-- **Fully editable page furniture:** cover, tag, header, footer, dynamic-title, and page-number fields can be customized or intentionally left blank without collapsing their layout slots.
-- **Portable theme JSON:** export one selected theme and import it as a new non-overwriting user theme through the existing explicit file picker.
-- **Compatibility preserved:** the built-in theme reproduces the 2.5.5 PDF output exactly. Markdown, print lifecycle, Kordoc HWPX, optional Pandoc DOCX, HTML, imports, and existing command IDs remain unchanged.
+Earlier releases are described in the [changelog](CHANGELOG.md).
 
 ### Core 2.x workflow
 
-- **Kordoc 4.2.5 built in:** generates and validates HWPX without external setup and fixes same-line text around inline `treatAsChar` tables when importing form-style documents.
+- **Kordoc 4.15.7 built in:** imports, generates, validates, compares, and fills documents without external setup.
 - **Images are real document assets:** remote HTTP(S), data-URI, and Vault PNG/JPEG/GIF/BMP images are embedded in HWPX `BinData`. Failed images are reported instead of silently becoming placeholders.
 - **Reusable HWPX templates:** create, import, duplicate, rename, edit, select, and delete any number of templates.
 - **Semantic document styles:** each template combines body and Heading 1–6 typography, paragraph spacing/indentation, page rules, and an optional table profile.
@@ -44,8 +57,8 @@ HanMark 2.6.1 uses exactly pinned **Kordoc 4.2.5** for HWPX generation, import, 
 
 | Format | Output | Engine | External setup |
 | --- | --- | --- | --- |
-| HWPX | Quick HWPX | Kordoc 4.2.5 + selected template | None |
-| HWPX | Korean public-document HWPX | Kordoc 4.2.5 preset | None |
+| HWPX | Quick HWPX | Kordoc 4.15.7 + selected template | None |
+| HWPX | Korean official document (8 types) | Kordoc 4.15.7 preset + institution style + note properties | None |
 | DOCX | Styled Word document | Pandoc + HanMark Word template | Optional Pandoc only |
 | HTML | Self-contained Achmage Editorial or Classic HTML | Built-in HanMark writer | None |
 | PDF | A4 Editorial PDF with cover and page furniture | Built-in Chromium print pipeline | None |
@@ -65,6 +78,8 @@ Explicitly opening Fast DOCX Preview from a HanMark button or command renders th
 
 The HWPX template button opens the template library. Built-in templates are immutable: duplicate one before editing it. Custom templates are Vault-wide and can be renamed or removed.
 
+To import, click the HanMark import icon in the ribbon, right-click a document in the file explorer, or drop files and folders into the import window. To compare two documents or fill a form, run the corresponding HanMark command or right-click the document.
+
 ### Images
 
 Each unique image is loaded once and can be placed multiple times. Remote images need a network connection during export; preview and export share an in-memory cache during the current Obsidian session. HWPX, Achmage Editorial HTML, and Editorial PDF accept validated PNG/JPEG/GIF/BMP assets. HTML converts them to embedded data URIs so the saved document can be opened offline. HTML can continue with an explicit missing-image label after a warning; PDF instead fails closed and offers retry or cancellation so a missing image cannot be overlooked in the printed result.
@@ -82,11 +97,11 @@ Each unique image is loaded once and can be placed multiple times. Remote images
 
 Users who added a preview font by filesystem path in HanMark 2.4.2 may need to select that font file once in 2.4.3. The stored font family and document template remain intact; only the safer private preview copy is newly required.
 
-### Markdown-first import and legacy source patching
+### Markdown-first import and older notes
 
-HanMark imports HWP, HWPX, PDF, DOCX, XLSX, and XLS documents as ordinary Markdown. Extracted images can stay as Vault attachments, be sent to the active CMDS Eagle cloud provider, or be decided on each import. The CMDS Eagle path first uses a public workspace bridge and then its registered active-note conversion command. The compatibility command runs only on a disposable staging note containing each unique image once; verified HTTPS URLs are token-patched into the latest imported Markdown, so CMDS never rewrites the document body. HanMark rechecks the staging target immediately before dispatch and never reads CMDS Eagle's private settings or credentials. Once a remote upload may have started, HanMark does not cascade the same unresolved image into another uploader. An optional direct R2 fallback uses user-entered Worker and Public URLs and asks for the API key without saving it; the key is retained for the session only after a successful authenticated upload. New imports contain the parsed document body and image links only; HanMark does not prepend source YAML or a source-path callout and does not cache the original solely for a future round trip.
+HanMark imports HWP, HWPX, HWPML (`.hml`), PDF, DOCX, XLSX, and XLS documents as ordinary Markdown. Extracted images can stay as Vault attachments, be sent to the active CMDS Eagle cloud provider, or be decided on each import. The CMDS Eagle path first uses a public workspace bridge and then its registered active-note conversion command. The compatibility command runs only on a disposable staging note containing each unique image once; verified HTTPS URLs are token-patched into the latest imported Markdown, so CMDS never rewrites the document body. HanMark rechecks the staging target immediately before dispatch and never reads CMDS Eagle's private settings or credentials. Once a remote upload may have started, HanMark does not cascade the same unresolved image into another uploader. An optional direct R2 fallback uses user-entered Worker and Public URLs and asks for the API key without saving it; the key is retained for the session only after a successful authenticated upload. New imports contain the parsed document body and image links only; HanMark does not prepend source YAML or a source-path callout and does not cache the original solely for a future round trip.
 
-For compatible notes imported by an earlier HanMark release, the command-palette-only **고급·레거시: 원본 형식 보존 수정본 만들기** command remains available. It always creates a separate output file and never overwrites the original HWP/HWPX. A separate migration command can create a clean Markdown sibling from HanMark's older generated metadata while preserving user-authored YAML and ordinary callouts.
+For notes imported by an earlier HanMark release, the command-palette-only advanced command for an original-format copy remains available. Because those notes were read by an older engine (Kordoc 4.2.5), HanMark 2.7.0 no longer patches the original: the command always generates a new HWPX from the note, explains why in its report, and never changes the original HWP/HWPX. A separate migration command can create a clean Markdown sibling from HanMark's older generated metadata while preserving user-authored YAML and ordinary callouts.
 
 ### Limits
 
@@ -97,16 +112,22 @@ For compatible notes imported by an earlier HanMark release, the command-palette
 - HTML intentionally excludes SVG, WebP, video, iframe, script, event-handler, raw user CSS, external font, and CDN resources. Ordinary links are limited to `http:`, `https:`, and `mailto:`.
 - The generated HTML Content Security Policy is `default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'`.
 - Editorial PDF uses the desktop Chromium print engine. It is not rendered through a HanMark HWPX template, and final pagination can vary with the selected printer/PDF settings.
-- HanMark 2.6.1 requires Obsidian 1.8.9 or newer and is desktop-only. Mobile Obsidian is not supported; exported HTML itself is responsive in mobile browsers.
-- Optional OCR/ML components such as Sharp, ONNX, and PDFium are not loaded by the plugin startup bundle.
+- HanMark 2.7.0 requires Obsidian 1.8.9 or newer and is desktop-only. Mobile Obsidian is not supported; exported HTML itself is responsive in mobile browsers.
+- Scanned PDFs are not OCRed. Kordoc's optional OCR code is never called, no model is downloaded, and pages without text are reported instead.
+- Password-protected PDFs cannot be imported; password-protected HWPX files can.
+- Form filling works with HWPX forms only. Save an HWP form as HWPX in Hancom Office first.
+- The comparison table compares table cells by position, so inserting a row marks the rows below it as changed. Detecting form fields from table layout is a best guess; unmatched properties are listed in the report.
+- The official-document notation check follows the style-guide rules built into Kordoc. It is not a full spelling check, and its messages are in Korean.
+- The Hangul document viewer and the HWPX preview look fonts up by name, so fonts missing on this computer look different.
 
 ### Privacy and capabilities
 
-- **Network:** HanMark requests the exact HTTP(S) image URL present in a note only when the user previews or exports that note. If the user explicitly selects CMDS Eagle's active cloud for imported images, the extracted image bytes are uploaded through CMDS Eagle's configured provider; only when that bridge is unavailable and the user has configured the optional fallback does HanMark send those image bytes to the entered HTTPS Worker URL. No document text is uploaded. The fallback API key is cached in memory only after a successful authenticated upload, cleared after an authentication rejection, and never written to HanMark settings. Achmage Editorial embeds validated images into the saved HTML, which makes that output independent of the network after export.
-- **Files:** HanMark reads Vault attachments and files explicitly selected by the user. It writes imported attachments and user-requested export files through Obsidian Vault and browser file APIs. New imports do not cache the original source. If the user invokes the legacy source-patching command for an older imported note, HanMark may ask for the original again and stores only the private data required for that explicit compatibility action; it never overwrites the original.
-- **External programs:** HWPX and HTML use no external converter. Editorial PDF uses the built-in Chromium PDF pipeline; native printing is an explicit secondary action, without starting Pandoc. A user-configured Pandoc executable can run only after an explicit DOCX export, an explicit Fast DOCX Preview open, **Refresh**, or direct preview-mode selection. Workspace restoration, view lifecycle events, typing, active-note changes, and template changes never start Pandoc. Optional Windows Word-to-PDF preview invokes Word only after a corresponding explicit preview request. For a newly saved Vault result, **Show in folder** can start the operating system's file manager with that result selected, only after the user clicks the button.
+- **Network:** HanMark requests the exact HTTP(S) image URL present in a note only when the user previews or exports that note. If the user explicitly selects CMDS Eagle's active cloud for imported images, the extracted image bytes are uploaded through CMDS Eagle's configured provider; only when that bridge is unavailable and the user has configured the optional fallback does HanMark send those image bytes to the entered HTTPS Worker URL. No document text is uploaded. The fallback API key is cached in memory only after a successful authenticated upload, cleared after an authentication rejection, and never written to HanMark settings. Achmage Editorial embeds validated images into the saved HTML, which makes that output independent of the network after export. Import, comparison, form filling, note assembly, and the Hangul document viewer never use the network.
+- **Files:** HanMark reads Vault attachments and files explicitly selected by the user. It writes imported attachments and user-requested export files through Obsidian Vault and browser file APIs. New imports do not cache the original source. Comparison notes, filled forms, and imported notes are always new files; an original document or form is never modified. A form chosen from outside the Vault is copied into the Vault's attachment folder first, with a notice. Passwords for protected documents are kept in memory only for that import. The advanced command for notes imported by older versions creates a new HWPX from the note through a save dialog and does not read or overwrite the original.
+- **External programs:** HWPX and HTML use no external converter. Editorial PDF uses the built-in Chromium PDF pipeline; native printing is an explicit secondary action, without starting Pandoc. A user-configured Pandoc executable can run only after an explicit DOCX export, an explicit Fast DOCX Preview open, **Refresh**, or direct preview-mode selection. Workspace restoration, view lifecycle events, typing, active-note changes, and template changes never start Pandoc. Optional Windows Word-to-PDF preview invokes Word only after a corresponding explicit preview request. For a newly saved Vault result, **Show in folder** can start the operating system's file manager with that result selected, only after the user clicks the button. In the Hangul document viewer, **Open in default app** starts the operating system's default application for that file, again only after the user clicks it. If a program is missing, HanMark says which one and how to fix the path instead of showing a raw system error.
 - **Clipboard and dynamic execution:** HanMark does not read or write the clipboard and does not evaluate downloaded or generated JavaScript.
 - **Data collection:** no accounts, analytics, telemetry, advertising, payments, or remote feature flags.
+- **Personal data in form notes:** values you type into a form note, such as a resident registration number, stay in that note as plain text and are synced and backed up with your Vault. The form note shows a warning when a form has such a field.
 
 ### Manual installation
 
@@ -122,11 +143,13 @@ npm run check
 The public, credential-free CMDS Eagle interoperability contract is documented
 in [`docs/cmds-eagle-bridge-v1.md`](docs/cmds-eagle-bridge-v1.md).
 
-`npm run check` runs the official Obsidian ESLint rules, adapter/template/HWPX and characterization tests, TypeScript compilation, the production build, bundle-size/native-module guards, Community review guards, and release consistency checks. See [CONTRIBUTING.md](CONTRIBUTING.md) for the preserved-version branch policy.
+`npm run check` runs the official Obsidian ESLint rules, the interface-language check (Korean and English message tables, no untranslated interface text), adapter/template/HWPX, comparison, form, and characterization tests, TypeScript compilation, the production build, bundle-size/native-module guards, Community review guards, and release consistency checks. Browser tests of the Editorial PDF, the toolbar, and the previews run with `npm run test:pdf-render`, `npm run test:pdf-ui`, `npm run test:toolbar-ui`, and `npm run test:preview-ui`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the preserved-version branch policy and [`docs/research`](docs/research/RESEARCH_REGISTER.md) for the research register behind each change.
 
 ### Credits
 
-- [chrisryugj/kordoc](https://github.com/chrisryugj/kordoc) — bundled HWP/HWPX import, Markdown-to-HWPX, source patching, validation, format profiles, and SVG preview.
+- [chrisryugj/kordoc](https://github.com/chrisryugj/kordoc) 4.15.7 — bundled HWP/HWPX/HWPML/PDF/DOCX/XLSX import, Markdown-to-HWPX (quick and official documents), validation, comparison, form filling, format profiles, and SVG rendering.
+- [rhwp](https://github.com/edwardkim/rhwp) by Edward Kim — the two built-in standard draft letter forms (MIT), bundled through Kordoc.
+- [markdown-it-footnote](https://github.com/markdown-it/markdown-it-footnote) 4.0.0 — footnotes in HTML and PDF (MIT).
 - [docx-preview](https://github.com/VolodymyrBaydalka/docxjs) 0.4.0 by Volodymyr Baydalka — browser rendering of user-requested DOCX packages; [Apache License 2.0](https://github.com/VolodymyrBaydalka/docxjs/blob/master/LICENSE).
 - [Kami](https://github.com/tw93/kami) by Tw93 — the Achmage Editorial visual language adapts selected document-design principles under the MIT License; no Kami package, font, build script, or content is bundled. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - [Pretendard](https://github.com/orioncactus/pretendard) 400/600 via `@fontsource/pretendard` 5.3.0 — embedded for Editorial PDF under the SIL Open Font License 1.1. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
@@ -139,7 +162,27 @@ in [`docs/cmds-eagle-bridge-v1.md`](docs/cmds-eagle-bridge-v1.md).
 
 **Obsidian Markdown과 편집 가능한 한글 HWP/HWPX를 잇는 데스크톱 플러그인입니다.**
 
-HanMark 2.6.1의 HWPX 생성·가져오기·레거시 원본 수정·검증·이미지 포함·문서 스타일·빠른 미리보기 엔진은 정확히 고정된 **Kordoc 4.2.5**입니다. HWPX·독립형 HTML·Editorial PDF를 만들 때 Python, pypandoc-hwpx, Pandoc 또는 실행 파일 경로 설정이 필요하지 않습니다.
+HanMark 2.7.0의 불러오기·HWPX 생성(빠른 HWPX·공문서)·검증·이미지 포함·문서 스타일·문서 비교·양식 채우기·빠른 미리보기 엔진은 정확히 고정된 **Kordoc 4.15.7**입니다. HWPX·독립형 HTML·Editorial PDF를 만들 때 Python, pypandoc-hwpx, Pandoc 또는 실행 파일 경로 설정이 필요하지 않습니다. 모든 변환은 오프라인으로 동작하며 AI 토큰을 쓰지 않습니다.
+
+### 2.7.0 핵심 변화
+
+- **새 엔진, 더 정확한 불러오기:** Kordoc 4.15.7은 표 안의 표·캡션·각주를 보존하고, HWP 5와 HWPX에서 같은 Markdown을 만들며, PDF의 2단 본문·표·제목·각주를 되살리고, 실제 쪽 번호로 알려 줍니다. Adobe CMap(KSC·UniKS)을 쓰는 한국어 PDF에서 글자가 통째로 사라지던 문제는 한국어 CMap 24개를 내장해 해결했습니다.
+- **어디서나 불러오기:** 리본 아이콘, 파일 탐색기에서 파일 하나 또는 여러 개 우클릭, 파일·폴더 끌어 놓기를 지원합니다. 프리셋 4종(기본·글 위주·서식 문서·시험지·안내문 PDF), 쪽 범위, 고급 옵션을 고를 수 있고 새 노트를 둘 폴더도 정할 수 있습니다. 암호가 걸린 HWPX는 암호를 물어 보며 암호는 메모리에만 둡니다. 결과 보고서는 쪽 번호가 붙은 경고, 새 노트 링크, 다시 시도 버튼을 보여 줍니다. 큰 파일은 먼저 확인하고, 여러 파일은 파일 사이에서 멈출 수 있습니다.
+- **한글 파일 보기 화면:** 볼트 안의 `.hwp`·`.hwpx`를 옵시디언에서 읽기 전용으로 열고, 그 화면에서 노트로 변환·다른 문서와 비교·양식 입력 노트 만들기를 할 수 있습니다.
+- **더 강한 HWPX:** 한컴오피스가 번호를 매기는 실제 각주, 누를 수 있는 하이퍼링크, 쪽에서 나뉘며 머리행이 반복되는 긴 표를 만듭니다. 같은 노트는 언제나 같은 파일이 됩니다.
+- **공문서:** 8종(업무보고 추가)을 한림대 양식·내 양식과 함께 "양식" 목록 하나에서 고르고, 실시간 미리보기가 있는 기관 서식, 노트 속성으로 채우는 표지·결재란·두문·결문(`공문_수신` 같은 한국어 키 또는 `gongmun-to` 같은 영어 별칭), 종류별 속성을 한 번에 넣는 버튼, 공문서 표기 점검, 공문서 미리보기를 제공합니다. 노트의 제목 단계가 문서의 단계가 됩니다(예: 기안문 1. → 가. → 1)). `#` 제목이 없는 노트는 파일 이름을 제목으로 씁니다.
+- **한림대학교 내장 양식:** 일송자유교양대학 회의록·회의자료, AI융합연구원 중간 보고서를 양식 목록 맨 위에서 고를 수 있습니다.
+- **HWPX 미리보기 막대:** 미리보기 안에서 빠른 HWPX와 공문서 양식을 바꾸고, 새로 고치고, 바로 HWPX로 저장합니다. 툴바 버튼은 마지막에 쓴 방식으로 미리보기를 엽니다.
+- **노트 조립:** `![[노트]]`, `![[노트#제목]]`, `![[노트#^블록]]` 임베드를 모든 내보내기 형식과 미리보기에서 실제 본문으로 합칩니다. 순환·없는 노트는 표시해 알려 주며 설정에서 끌 수 있습니다.
+- **신구대조표:** 두 판의 문서(HWP·HWPX·PDF·DOCX·XLSX, 형식을 섞어도 됨)를 비교해 바뀐 부분을 표로 정리한 노트를 만들고, 바뀐 낱말은 굵게 표시합니다. 이 노트를 HWPX·DOCX로 내보내면 제출용 대조표가 됩니다.
+- **양식 채우기:** HWPX 양식(누름틀·항목 칸·머리행 아래 빈 행)이나 내장 표준 기안문으로 입력 노트를 만들고, 속성에 값을 적은 뒤 채운 사본을 저장합니다. 양식 원본은 바뀌지 않습니다.
+- **HTML·PDF 각주** 표시.
+- **영어 화면:** 옵시디언 언어를 따라 자동으로 바뀌고, 설정에서 한국어나 영어로 고정할 수 있습니다. 한글이 없는 노트를 내보내면 문서 안의 라벨도 영어가 됩니다.
+- **글꼴 안내:** HWPX에는 템플릿 글꼴 이름을 어느 PC에서나 그대로 씁니다. 이 PC에 없는 글꼴, 미리보기에서 대신 쓴 글꼴, 받는 곳을 알려 주며, 원하면 템플릿마다 대체 규칙을 저장할 수 있습니다.
+- **예전 버전으로 불러온 노트:** 원본 형식 보존 저장은 이제 원본을 패치하지 않고 언제나 노트로 새 HWPX를 만듭니다.
+- **마감 손질:** 툴바를 얇은 띠로 접고 창마다 한 줄로 유지합니다. HWPX·DOCX 미리보기는 다시 그려도 읽던 자리에 머물고, 쪽 이동·확대·편집 위치 따라가기를 지원합니다. 상태 표시줄은 한국어 방식으로 글자 수(공백 포함·제외, 200자 원고지)와 노트의 양식을 보여 주고, 빈 탭에서는 문서 불러오기·새 노트·최근 내보낸 파일을 바로 엽니다.
+- **공문서 파일 이름에 양식**(`무제 - 업무보고.hwpx`), 여러 양식 한 번에 내보내기, 노트별 마지막 양식 기억.
+- 동작 변화와 검증 범위는 [2.7.0 안내](release-notes/2.7.0.md)를 참고하십시오.
 
 ### 2.6.1 핵심 변화
 
@@ -150,18 +193,11 @@ HanMark 2.6.1의 HWPX 생성·가져오기·레거시 원본 수정·검증·이
 - **절별 새 페이지:** 최상위 제목 묶음에서 새 페이지를 시작할 수 있습니다. 기본은 기존 1단 출력이며, 2단 설정과 표 폭 기본값은 플러그인 설정에서 지정할 수 있습니다.
 - 설정은 v11로 이관됩니다. 기존 테마 JSON과 Markdown 형식은 유지합니다. macOS 실기 검증은 사용자 결정으로 생략했고 macOS CI는 유지합니다. [검증 범위와 제한](release-notes/2.6.1.md)을 참고하십시오.
 
-### 2.5.6 핵심 변화
-
-- **사용자 PDF 테마 라이브러리:** 수정 불가능한 Achmage HanMark 기본 디자인을 유지하거나 Vault마다 이름 있는 PDF 테마를 제한 없이 생성·복제·이름 변경·편집·선택·삭제할 수 있습니다.
-- **키 컬러 하나로 안전한 팔레트:** 테마·선택창·JSON에 저장되는 6자리 키 컬러는 입력값 그대로 유지됩니다. 자동 모드에서만 글자가 놓이는 면을 제품 상한인 OKLab 색차(`ΔEOK`) `0.02` 이하로 조금 어둡게 만들 수 있으며, 최종 색 조합이 WCAG `4.5:1` 이상일 때만 적용합니다. 조건을 만족하지 못하면 원래 키 면과 안전한 글자색으로 돌아갑니다.
-- **쉬운 기본값과 수동 선택권:** 고급 영역의 글자·실선 3색은 직접 덮어쓸 수 있습니다. 키 배경 위 글자를 직접 지정하면 면 자동 보정이 꺼지고 입력한 키 컬러 면으로 돌아갑니다. 낮은 대비를 강제로 바꾸지 않고 실제 비율과 경고를 표시합니다.
-- **표지와 페이지 문구 전체 편집:** 표지·태그·머리말·꼬리말·동적 제목·쪽 번호를 바꾸거나 빈칸으로 둘 수 있으며 빈칸도 기존 자리 구조를 유지합니다.
-- **테마 JSON 공유:** 선택한 테마 하나를 내보내고 기존 파일을 덮어쓰지 않는 새 사용자 테마로 가져올 수 있습니다.
-- **호환성 유지:** 내장 기본 테마는 2.5.5 PDF 출력을 정확히 재현합니다. Markdown, 인쇄 수명주기, Kordoc HWPX, 선택형 Pandoc DOCX, HTML, 가져오기와 기존 명령 ID는 그대로입니다.
+이전 버전의 변화는 [변경 기록](CHANGELOG.md)을 참고하십시오.
 
 ### 2.x 핵심 기능
 
-- **Kordoc 4.2.5 내장:** 외부 설치 없이 HWPX를 생성·검증하고, 양식형 문서의 글자처럼 배치된 인라인 표 주변 텍스트를 가져올 때 생기던 줄바꿈 회귀를 수정했습니다.
+- **Kordoc 4.15.7 내장:** 외부 설치 없이 문서를 불러오고, HWPX를 생성·검증하며, 문서를 비교하고 양식을 채웁니다.
 - **실제 이미지 포함:** 원격 HTTP(S), data URI와 Vault PNG/JPEG/GIF/BMP 이미지를 HWPX `BinData`에 넣습니다. 실패한 이미지는 조용히 사라지지 않습니다.
 - **다중 사용자 템플릿:** 템플릿을 제한 없이 만들고, HWPX에서 가져오고, 복제·이름 변경·편집·선택·삭제할 수 있습니다.
 - **문서 스타일 규칙:** 템플릿 하나에 바탕글·제목 1~6의 글꼴, 문단 간격·들여쓰기, 페이지 규칙과 선택적인 표 스타일을 함께 저장합니다.
@@ -174,8 +210,8 @@ HanMark 2.6.1의 HWPX 생성·가져오기·레거시 원본 수정·검증·이
 
 | 형식 | 결과 | 엔진 | 외부 설치 |
 | --- | --- | --- | --- |
-| HWPX | 빠른 HWPX | Kordoc 4.2.5 + 선택 템플릿 | 없음 |
-| HWPX | 한국 공문서 HWPX | Kordoc 4.2.5 공문서 프리셋 | 없음 |
+| HWPX | 빠른 HWPX | Kordoc 4.15.7 + 선택 템플릿 | 없음 |
+| HWPX | 한국 공문서 HWPX(8종) | Kordoc 4.15.7 공문서 프리셋 + 기관 서식 + 노트 속성 | 없음 |
 | DOCX | 스타일이 적용된 Word 문서 | Pandoc + HanMark Word 템플릿 | Pandoc만 선택 설치 |
 | HTML | Achmage Editorial 또는 Classic 독립형 HTML | HanMark 내장 변환 | 없음 |
 | PDF | 표지와 페이지 장식을 갖춘 A4 Editorial PDF | 내장 Chromium 인쇄 파이프라인 | 없음 |
@@ -195,6 +231,8 @@ HanMark 버튼이나 명령으로 빠른 DOCX 미리보기를 직접 열면 간�
 
 HWPX 템플릿 버튼은 템플릿 라이브러리를 엽니다. 내장 템플릿은 직접 변경하지 않고 복제 후 편집합니다. 사용자 템플릿은 Vault 전체에 적용되며 이름 변경과 삭제가 가능합니다.
 
+불러오려면 리본의 HanMark 불러오기 아이콘을 누르거나, 파일 탐색기에서 문서를 우클릭하거나, 불러오기 창에 파일·폴더를 끌어다 놓습니다. 두 문서 비교와 양식 채우기는 해당 HanMark 명령을 실행하거나 문서를 우클릭해 시작합니다.
+
 ### 이미지
 
 동일한 이미지는 한 번만 읽어 여러 위치에 배치합니다. 원격 이미지는 내보낼 때 인터넷 연결이 필요하며, 현재 Obsidian 실행 중에는 미리보기와 내보내기가 메모리 캐시를 공유합니다. HWPX·Achmage Editorial HTML·Editorial PDF는 검증된 PNG·JPEG·GIF·BMP를 사용합니다. HTML은 이미지를 data URI로 포함하므로 저장 후에는 오프라인으로 열 수 있습니다. HTML은 경고 뒤에 명시적인 누락 표시로 계속할 수 있지만 PDF는 누락을 놓치지 않도록 실패 폐쇄 방식으로 재시도 또는 취소만 제공합니다.
@@ -212,11 +250,11 @@ HWPX 템플릿 버튼은 템플릿 라이브러리를 엽니다. 내장 템플�
 
 HanMark 2.4.2에서 파일 시스템 경로로 미리보기 글꼴을 추가한 사용자는 2.4.3에서 해당 글꼴 파일을 한 번 다시 선택해야 할 수 있습니다. 저장된 글꼴명과 문서 템플릿은 유지되며, 더 안전한 비공개 미리보기 사본만 새로 필요합니다.
 
-### Markdown 우선 가져오기와 레거시 원본 수정
+### Markdown 우선 가져오기와 예전 노트
 
-HWP, HWPX, PDF, DOCX, XLSX, XLS 문서를 일반 Markdown으로 가져옵니다. 추출된 이미지는 Vault 첨부 파일로 두거나, CMDS Eagle의 현재 클라우드 제공자로 보내거나, 가져올 때마다 선택할 수 있습니다. CMDS Eagle 경로는 공개 워크스페이스 브리지를 먼저 시도하고 현재 버전에서는 서로 다른 이미지 링크를 한 번씩만 담은 전용 임시 스테이징 노트에서 등록 명령을 실행합니다. 검증된 HTTPS URL만 최신 Markdown의 이미지 토큰에 적용하므로 CMDS가 가져온 문서 본문을 다시 쓰지 않습니다. 명령 실행 직전에 대상 스테이징 노트를 다시 확인하고, 원격 업로드가 시작됐을 가능성이 있으면 같은 이미지를 다른 업로더로 연쇄 전송하지 않아 중복을 막습니다. HanMark가 CMDS Eagle의 비공개 설정이나 자격증명을 읽지는 않습니다. 선택적 직접 R2 폴백은 사용자가 입력한 Worker/Public URL만 저장하고 API 키는 인증 업로드가 성공한 뒤에만 현재 Obsidian 세션 메모리에 보관하며 인증 거절 시 지웁니다. 새 가져오기 노트에는 파싱된 문서 본문과 이미지 링크만 들어가며, HanMark가 원본 YAML이나 원본 경로 콜아웃을 앞에 붙이지 않고 향후 왕복만을 위해 원본을 캐시하지도 않습니다.
+HWP, HWPX, HWPML(`.hml`), PDF, DOCX, XLSX, XLS 문서를 일반 Markdown으로 가져옵니다. 추출된 이미지는 Vault 첨부 파일로 두거나, CMDS Eagle의 현재 클라우드 제공자로 보내거나, 가져올 때마다 선택할 수 있습니다. CMDS Eagle 경로는 공개 워크스페이스 브리지를 먼저 시도하고 현재 버전에서는 서로 다른 이미지 링크를 한 번씩만 담은 전용 임시 스테이징 노트에서 등록 명령을 실행합니다. 검증된 HTTPS URL만 최신 Markdown의 이미지 토큰에 적용하므로 CMDS가 가져온 문서 본문을 다시 쓰지 않습니다. 명령 실행 직전에 대상 스테이징 노트를 다시 확인하고, 원격 업로드가 시작됐을 가능성이 있으면 같은 이미지를 다른 업로더로 연쇄 전송하지 않아 중복을 막습니다. HanMark가 CMDS Eagle의 비공개 설정이나 자격증명을 읽지는 않습니다. 선택적 직접 R2 폴백은 사용자가 입력한 Worker/Public URL만 저장하고 API 키는 인증 업로드가 성공한 뒤에만 현재 Obsidian 세션 메모리에 보관하며 인증 거절 시 지웁니다. 새 가져오기 노트에는 파싱된 문서 본문과 이미지 링크만 들어가며, HanMark가 원본 YAML이나 원본 경로 콜아웃을 앞에 붙이지 않고 향후 왕복만을 위해 원본을 캐시하지도 않습니다.
 
-이전 HanMark 버전으로 가져온 호환 노트에는 명령 팔레트 전용 **고급·레거시: 원본 형식 보존 수정본 만들기**를 계속 제공합니다. 이 명령은 항상 별도 결과 파일을 만들고 원본 HWP/HWPX를 덮어쓰지 않습니다. 별도의 마이그레이션 명령은 사용자가 작성한 YAML과 일반 콜아웃을 보존하면서 HanMark가 예전에 생성한 메타데이터만 제거한 깨끗한 Markdown 형제 노트를 만듭니다.
+이전 HanMark 버전으로 가져온 노트에는 명령 팔레트 전용 **고급·레거시: 원본 형식 보존 수정본 만들기**를 계속 제공합니다. 이런 노트는 예전 엔진(Kordoc 4.2.5)이 읽은 것이어서 HanMark 2.7.0은 원본을 패치하지 않습니다. 이 명령은 언제나 노트로 새 HWPX를 만들고 그 이유를 보고서에 적으며, 원본 HWP/HWPX는 바꾸지 않습니다. 별도의 마이그레이션 명령은 사용자가 작성한 YAML과 일반 콜아웃을 보존하면서 HanMark가 예전에 생성한 메타데이터만 제거한 깨끗한 Markdown 형제 노트를 만듭니다.
 
 ### 범위와 한계
 
@@ -227,16 +265,22 @@ HWP, HWPX, PDF, DOCX, XLSX, XLS 문서를 일반 Markdown으로 가져옵니다.
 - HTML은 SVG·WebP·동영상·iframe·스크립트·이벤트 핸들러·사용자 원시 CSS·외부 글꼴·CDN 자원을 의도적으로 제외합니다. 일반 링크는 `http:`, `https:`, `mailto:`만 허용합니다.
 - 생성된 HTML의 Content Security Policy는 `default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'`입니다.
 - Editorial PDF는 데스크톱 Chromium 인쇄 엔진을 사용합니다. HanMark HWPX 템플릿으로 렌더링하지 않으며 최종 쪽 나눔은 선택한 프린터·PDF 설정에 따라 달라질 수 있습니다.
-- HanMark 2.6.1은 Obsidian 1.8.9 이상이 필요한 데스크톱 전용 플러그인입니다. 모바일 Obsidian은 지원하지 않지만 내보낸 HTML 자체는 모바일 브라우저 화면에 반응합니다.
-- Sharp, ONNX, PDFium 같은 선택적 OCR·ML 구성요소는 플러그인 시작 번들에서 불러오지 않습니다.
+- HanMark 2.7.0은 Obsidian 1.8.9 이상이 필요한 데스크톱 전용 플러그인입니다. 모바일 Obsidian은 지원하지 않지만 내보낸 HTML 자체는 모바일 브라우저 화면에 반응합니다.
+- 스캔 PDF는 OCR하지 않습니다. Kordoc의 선택형 OCR 코드는 호출하지 않고 모델도 내려받지 않으며, 글자가 없는 쪽은 보고서로 알려 줍니다.
+- 암호가 걸린 PDF는 불러올 수 없습니다. 암호가 걸린 HWPX는 불러올 수 있습니다.
+- 양식 채우기는 HWPX 양식만 지원합니다. HWP 양식은 한컴오피스에서 HWPX로 저장한 뒤 사용하십시오.
+- 신구대조표는 표 셀을 같은 위치끼리 비교하므로 행을 넣으면 그 아래 행이 모두 바뀐 것으로 나옵니다. 표 모양으로 양식 칸을 찾는 것은 추정이며, 찾지 못한 속성은 보고서에 표시합니다.
+- 공문서 표기 점검은 Kordoc에 들어 있는 편람 규칙을 따릅니다. 맞춤법 전체 검사가 아니며 점검 메시지는 한국어로만 표시합니다.
+- 한글 파일 보기 화면과 HWPX 미리보기는 글꼴을 이름으로 찾으므로 이 PC에 없는 글꼴은 모양이 다를 수 있습니다.
 
 ### 개인정보와 접근 권한
 
-- **네트워크:** 사용자가 HTTP(S) 이미지가 포함된 노트를 미리보거나 내보낼 때만 노트에 적힌 해당 이미지 URL로 요청합니다. 가져온 이미지에 대해 사용자가 명시적으로 CMDS Eagle 현재 클라우드를 선택하면 추출된 이미지 바이트를 CMDS Eagle의 현재 제공자를 통해 업로드합니다. 그 브리지를 사용할 수 없고 사용자가 선택적 폴백을 설정한 경우에만 입력한 HTTPS Worker URL로 이미지 바이트를 보냅니다. 문서 본문은 업로드하지 않으며 폴백 API 키는 인증 업로드가 성공한 뒤에만 현재 Obsidian 세션 메모리에 보관하고 인증 거절 시 지우며 HanMark 설정에는 기록하지 않습니다. Achmage Editorial은 검증된 이미지를 저장할 HTML 안에 포함하므로 내보낸 뒤에는 네트워크가 필요하지 않습니다.
-- **파일:** Vault 첨부 파일과 사용자가 직접 선택한 파일을 읽습니다. 가져온 첨부 파일과 사용자가 요청한 결과 파일은 Obsidian Vault와 브라우저 파일 API로 저장합니다. 새 가져오기는 원본을 캐시하지 않습니다. 사용자가 예전 가져오기 노트에서 레거시 원본 수정 명령을 직접 실행한 경우에는 원본을 다시 선택하라고 요청할 수 있고 해당 호환 동작에 필요한 비공개 데이터만 저장합니다. 원본은 절대 덮어쓰지 않습니다.
-- **외부 프로그램:** HWPX와 HTML은 외부 변환기를 사용하지 않습니다. Editorial PDF는 내장 Chromium으로 PDF를 직접 생성합니다. 운영체제 인쇄 창은 별도 인쇄 버튼으로 열며 Pandoc을 실행하지 않습니다. 사용자가 지정한 Pandoc은 명시적인 DOCX 내보내기, 빠른 DOCX 미리보기 직접 열기, **새로 고침**, 또는 사용자가 직접 미리보기 방식을 선택했을 때만 실행합니다. 작업공간 복원, 뷰 생명주기, 입력, 활성 노트 변경과 템플릿 변경은 Pandoc을 실행하지 않습니다. Windows Word-to-PDF 미리보기 역시 해당 미리보기 동작을 직접 요청한 뒤에만 Word를 호출합니다. 방금 저장한 Vault 결과의 **파일 위치 보기**는 사용자가 버튼을 누른 경우에만 운영체제 파일 관리자를 실행해 해당 파일을 선택합니다.
+- **네트워크:** 사용자가 HTTP(S) 이미지가 포함된 노트를 미리보거나 내보낼 때만 노트에 적힌 해당 이미지 URL로 요청합니다. 가져온 이미지에 대해 사용자가 명시적으로 CMDS Eagle 현재 클라우드를 선택하면 추출된 이미지 바이트를 CMDS Eagle의 현재 제공자를 통해 업로드합니다. 그 브리지를 사용할 수 없고 사용자가 선택적 폴백을 설정한 경우에만 입력한 HTTPS Worker URL로 이미지 바이트를 보냅니다. 문서 본문은 업로드하지 않으며 폴백 API 키는 인증 업로드가 성공한 뒤에만 현재 Obsidian 세션 메모리에 보관하고 인증 거절 시 지우며 HanMark 설정에는 기록하지 않습니다. Achmage Editorial은 검증된 이미지를 저장할 HTML 안에 포함하므로 내보낸 뒤에는 네트워크가 필요하지 않습니다. 불러오기·문서 비교·양식 채우기·노트 조립·한글 파일 보기 화면은 네트워크를 쓰지 않습니다.
+- **파일:** Vault 첨부 파일과 사용자가 직접 선택한 파일을 읽습니다. 가져온 첨부 파일과 사용자가 요청한 결과 파일은 Obsidian Vault와 브라우저 파일 API로 저장합니다. 새 가져오기는 원본을 캐시하지 않습니다. 신구대조표 노트·채운 양식·불러온 노트는 언제나 새 파일이며 원본 문서나 양식은 바꾸지 않습니다. Vault 밖에서 고른 양식은 먼저 Vault 첨부 폴더로 복사하고 알려 줍니다. 암호 문서의 암호는 그 불러오기 동안 메모리에만 둡니다. 예전 버전으로 불러온 노트의 고급 명령은 저장 창을 거쳐 노트로 새 HWPX를 만들며 원본을 읽거나 덮어쓰지 않습니다.
+- **외부 프로그램:** HWPX와 HTML은 외부 변환기를 사용하지 않습니다. Editorial PDF는 내장 Chromium으로 PDF를 직접 생성합니다. 운영체제 인쇄 창은 별도 인쇄 버튼으로 열며 Pandoc을 실행하지 않습니다. 사용자가 지정한 Pandoc은 명시적인 DOCX 내보내기, 빠른 DOCX 미리보기 직접 열기, **새로 고침**, 또는 사용자가 직접 미리보기 방식을 선택했을 때만 실행합니다. 작업공간 복원, 뷰 생명주기, 입력, 활성 노트 변경과 템플릿 변경은 Pandoc을 실행하지 않습니다. Windows Word-to-PDF 미리보기 역시 해당 미리보기 동작을 직접 요청한 뒤에만 Word를 호출합니다. 방금 저장한 Vault 결과의 **파일 위치 보기**는 사용자가 버튼을 누른 경우에만 운영체제 파일 관리자를 실행해 해당 파일을 선택합니다. 한글 파일 보기 화면의 **기본 앱으로 열기**도 사용자가 누른 경우에만 그 파일의 운영체제 기본 앱을 실행합니다. 프로그램을 찾지 못하면 날것의 시스템 오류 대신 어떤 프로그램인지와 경로 확인 방법을 알려 줍니다.
 - **클립보드와 동적 실행:** 클립보드를 읽거나 쓰지 않으며 다운로드하거나 생성한 JavaScript를 동적으로 실행하지 않습니다.
 - **데이터 수집:** 계정, 분석, 텔레메트리, 광고, 결제, 원격 기능 플래그가 없습니다.
+- **양식 입력 노트의 개인정보:** 주민등록번호처럼 양식 입력 노트에 적은 값은 노트에 평문으로 남고 Vault와 함께 동기화·백업됩니다. 그런 칸이 있는 양식이면 입력 노트에 주의 문구를 넣습니다.
 
 ### 수동 설치
 
@@ -252,11 +296,13 @@ npm run check
 CMDS Eagle와 자격증명을 공유하지 않는 공개 연동 계약은
 [`docs/cmds-eagle-bridge-v1.md`](docs/cmds-eagle-bridge-v1.md)에 정리되어 있습니다.
 
-`npm run check`는 공식 Obsidian ESLint, Markdown 어댑터·템플릿·HWPX 및 특성 보존 테스트, TypeScript 컴파일, 프로덕션 빌드, 번들 크기·네이티브 모듈 검사, Community 심사 게이트와 Release 일치 검사를 실행합니다. 버전 브랜치 보존 원칙은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하십시오.
+`npm run check`는 공식 Obsidian ESLint, 화면 언어 검사(한국어·영어 문구 표 일치, 옮기지 않은 화면 문자열 없음), Markdown 어댑터·템플릿·HWPX·문서 비교·양식 및 특성 보존 테스트, TypeScript 컴파일, 프로덕션 빌드, 번들 크기·네이티브 모듈 검사, Community 심사 게이트와 Release 일치 검사를 실행합니다. Editorial PDF·툴바·미리보기 브라우저 테스트는 `npm run test:pdf-render`, `npm run test:pdf-ui`, `npm run test:toolbar-ui`, `npm run test:preview-ui`로 실행합니다. 버전 브랜치 보존 원칙은 [CONTRIBUTING.md](CONTRIBUTING.md), 변경마다의 조사 근거는 [연구 등록부](docs/research/RESEARCH_REGISTER.md)를 참고하십시오.
 
 ### 감사
 
-- [chrisryugj/kordoc](https://github.com/chrisryugj/kordoc) — 내장 HWP/HWPX 가져오기, Markdown-to-HWPX, 원본 수정, 검증, 형식 프로필과 SVG 미리보기.
+- [chrisryugj/kordoc](https://github.com/chrisryugj/kordoc) 4.15.7 — 내장 HWP/HWPX/HWPML/PDF/DOCX/XLSX 불러오기, Markdown-to-HWPX(빠른 HWPX·공문서), 검증, 문서 비교, 양식 채우기, 형식 프로필과 SVG 렌더링.
+- Edward Kim의 [rhwp](https://github.com/edwardkim/rhwp) — Kordoc을 통해 포함한 내장 표준 기안문 서식 2종(MIT).
+- [markdown-it-footnote](https://github.com/markdown-it/markdown-it-footnote) 4.0.0 — HTML·PDF 각주 표시(MIT).
 - Volodymyr Baydalka의 [docx-preview](https://github.com/VolodymyrBaydalka/docxjs) 0.4.0 — 사용자가 요청한 DOCX 패키지를 Obsidian 안에서 렌더링하며 [Apache License 2.0](https://github.com/VolodymyrBaydalka/docxjs/blob/master/LICENSE)을 따릅니다.
 - Tw93의 [Kami](https://github.com/tw93/kami) — Achmage Editorial의 시각 언어는 MIT License로 공개된 문서 디자인 원칙 일부를 응용했습니다. Kami 패키지·글꼴·빌드 스크립트·콘텐츠는 포함하지 않습니다. 자세한 표기는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 참고하십시오.
 - [Pretendard](https://github.com/orioncactus/pretendard) 400·600 (`@fontsource/pretendard` 5.3.0) — SIL Open Font License 1.1에 따라 Editorial PDF용으로 포함합니다. 자세한 표기는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 참고하십시오.

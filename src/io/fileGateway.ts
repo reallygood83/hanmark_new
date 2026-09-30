@@ -1,5 +1,6 @@
 import type { App, DataAdapter } from "obsidian";
 import { sha256Bytes } from "./hash";
+import { t } from "../i18n";
 
 export interface FilePickOptions {
   title?: string;
@@ -255,7 +256,7 @@ export async function readSelectedExternalFiles(
   const maxTotalBytes = checkedLimit(options.maxTotalBytes, "maxTotalBytes");
 
   if (maxFiles !== undefined && matching.length > maxFiles) {
-    throw new Error(`Select at most ${maxFiles} matching files at once.`);
+    throw new Error(t("import.error.tooManySelected", { count: maxFiles }));
   }
 
   let declaredTotal = 0;

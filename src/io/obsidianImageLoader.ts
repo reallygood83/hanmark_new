@@ -1,4 +1,5 @@
 import { App, TFile, normalizePath, requestUrl } from "obsidian";
+import { t } from "../i18n";
 import type { ImageLoader, LoadedImage } from "./imageAssets";
 
 const MAX_CACHE_BYTES = 96 * 1024 * 1024;
@@ -62,7 +63,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
     return await Promise.race([
       promise,
       new Promise<T>((_resolve, reject) => {
-        timer = window.setTimeout(() => reject(new Error(`이미지 요청 시간이 ${Math.round(ms / 1000)}초를 넘었습니다.`)), ms);
+        timer = window.setTimeout(() => reject(new Error(t("imageLoader.timeout", { seconds: Math.round(ms / 1000) }))), ms);
       })
     ]);
   } finally {
@@ -72,7 +73,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 function decodeDataUri(source: string): LoadedImage {
   const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(source);
-  if (!match) throw new Error("잘못된 data URI 이미지입니다.");
+  if (!match) throw new Error(t("imageLoader.invalidDataUri"));
   const bytes = match[2]
     ? Uint8Array.from(Buffer.from(match[3], "base64"))
     : Uint8Array.from(Buffer.from(decodeURIComponent(match[3]), "utf8"));
@@ -96,18 +97,18 @@ export function createObsidianImageLoader(app: App, sourceFile: TFile): ImageLoa
     if (/^https?:\/\//i.test(source)) {
       return cachedLoad(`remote:${source}`, async () => {
         const response = await withTimeout(requestUrl({ url: source, method: "GET", throw: false }), REQUEST_TIMEOUT_MS);
-        if (response.status < 200 || response.status >= 300) throw new Error(`원격 이미지 요청 실패: HTTP ${response.status}`);
+        if (response.status < 200 || response.status >= 300) throw new Error(t("imageLoader.httpFailed", { status: response.status }));
         return {
           data: new Uint8Array(response.arrayBuffer),
           contentType: header(response.headers, "content-type")
         };
       });
     }
-    if (/^[a-z][a-z0-9+.-]*:/i.test(source)) throw new Error("HTTP·HTTPS·data 이외의 이미지 URL은 지원하지 않습니다.");
+    if (/^[a-z][a-z0-9+.-]*:/i.test(source)) throw new Error(t("imageLoader.unsupportedScheme"));
 
     const path = cleanLocalSource(source);
     const file = app.metadataCache.getFirstLinkpathDest(path, sourceFile.path) ?? app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) throw new Error(`Vault 이미지 파일을 찾을 수 없습니다: ${path}`);
+    if (!(file instanceof TFile)) throw new Error(t("imageLoader.notFound", { path }));
     const key = `vault:${file.path}:${file.stat.mtime}:${file.stat.size}`;
     return cachedLoad(key, async () => ({ data: await app.vault.readBinary(file) }));
   };

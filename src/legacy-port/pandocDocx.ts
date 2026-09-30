@@ -5,6 +5,7 @@ import {
   type UserInitiatedAction,
   type UserProcessRunner
 } from "./userProcess";
+import { t } from "../i18n";
 
 export interface PandocDocxArgsInput {
   inputPath: string;
@@ -87,7 +88,7 @@ export class PandocDocxService {
       action
     );
     if (!result.stdout.byteLength) {
-      throw new Error("Pandoc did not return its default reference.docx.");
+      throw new Error(t("docx.error.noReferenceDoc"));
     }
     return result.stdout;
   }

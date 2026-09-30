@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { showsText } from "./helpers/uiText";
 
 test("Word template manager preserves the 2.4.2 edit and activation contract", async () => {
   const source = await readFile(
@@ -10,8 +11,8 @@ test("Word template manager preserves the 2.4.2 edit and activation contract", a
 
   assert.match(source, /hanmark-resizable-workspace-modal/u);
   assert.match(source, /wordTemplateDraftIsDirty/u);
-  assert.match(source, /저장하지 않은 변경을 버리고 닫을까요/u);
-  assert.match(source, /저장하고 사용/u);
+  assert.ok(showsText(source, /저장하지 않은 변경을 버리고 닫을까요/u));
+  assert.ok(showsText(source, /저장하고 사용/u));
   assert.match(source, /saveDraft\(false\)/u);
   assert.match(source, /saveDraft\(true\)/u);
   assert.match(

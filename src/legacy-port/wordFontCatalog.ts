@@ -6,6 +6,7 @@ import {
   type SelectedExternalFile
 } from "../io/fileGateway";
 import type { CustomFontEntry, HanmarkSettings } from "./settings";
+import { t } from "../i18n";
 
 declare global {
   /**
@@ -60,7 +61,7 @@ export const FONT_PICK_LIMITS = {
   maxFileBytes: 32 * 1024 * 1024,
   maxTotalBytes: 256 * 1024 * 1024
 } as const;
-const PREVIEW_SAMPLE = "Aa 한글 123";
+const PREVIEW_SAMPLE = "Aa 한글 123"; // i18n-data: Latin, Hangul, and digit glyph probe for font previews
 
 /**
  * A useful zero-permission baseline. The explicit "installed fonts" action
@@ -68,6 +69,7 @@ const PREVIEW_SAMPLE = "Aa 한글 123";
  * supported.
  */
 export const RECOMMENDED_WORD_FONTS = [
+  // i18n-data-begin: font family names
   "맑은 고딕",
   "Malgun Gothic",
   "함초롬바탕",
@@ -79,6 +81,7 @@ export const RECOMMENDED_WORD_FONTS = [
   "바탕",
   "굴림",
   "돋움",
+  // i18n-data-end
   "AppleMyungjo",
   "Apple SD Gothic Neo",
   "Arial",
@@ -124,7 +127,7 @@ function displayNameFromFilename(name: string): string {
     stem
       .replace(/[-_]+/g, " ")
       .replace(/\b(?:bold|semibold|demibold|heavy|black|italic|oblique|regular)\b/gi, "")
-  ) || "사용자 글꼴";
+  ) || "사용자 글꼴"; // i18n-data: fallback family name, saved in settings and registered as the FontFace family
 }
 
 function fontWeight(name: string): 400 | 700 {
@@ -389,7 +392,7 @@ export class WordFontCatalog {
 
   async pickFontFiles(): Promise<CustomFontEntry[]> {
     const files = await this.fileGateway.pickFiles({
-      title: "미리보기에 사용할 글꼴 파일 선택",
+      title: t("wordFont.picker.files"),
       extensions: FONT_EXTENSIONS,
       multiple: true,
       ...FONT_PICK_LIMITS
@@ -399,7 +402,7 @@ export class WordFontCatalog {
 
   async pickFontDirectory(): Promise<CustomFontEntry[]> {
     const files = await this.fileGateway.pickFiles({
-      title: "미리보기에 사용할 글꼴 폴더 선택",
+      title: t("wordFont.picker.folder"),
       extensions: FONT_EXTENSIONS,
       multiple: true,
       directory: true,

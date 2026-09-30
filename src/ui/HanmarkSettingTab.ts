@@ -10,7 +10,7 @@ import {
   availableDocumentTemplates,
   setActiveDocumentTemplate
 } from "../io/documentStyleSettings";
-import type { TemplateLibraryHost } from "../io/templateLibrary";
+import { templateDisplayName, type TemplateLibraryHost } from "../io/templateLibrary";
 import type {
   DocxPreviewMode,
   HanmarkSettings,
@@ -21,7 +21,13 @@ import type {
   ToolbarSkinPaletteKey
 } from "../legacy-port/settings";
 import {
+  IMPORT_PRESET_IDS,
+  IMPORT_PRESET_LABELS,
+  normalizeImportPreset
+} from "../io/importOptions";
+import {
   cloneToolbarSkin,
+  normalizeImportDestination,
   normalizeImportedImageFolder,
   normalizeToolbarHex,
   normalizeToolbarSkin,
@@ -31,22 +37,41 @@ import {
 } from "../legacy-port/settings";
 import type { WordTemplateStore } from "../legacy-port/wordTemplateStore";
 import { errorMessage } from "../utils/errors";
-import { normalizeEditorialPdfLayout, EDITORIAL_PDF_LAYOUT_CHOICES, EDITORIAL_PDF_TABLE_WIDTH_CHOICES } from "../io/editorialPdfLayout";
+import {
+  editorialPdfLayoutChoices,
+  editorialPdfTableWidthChoices,
+  normalizeEditorialPdfLayout
+} from "../io/editorialPdfLayout";
+import {
+  normalizeLanguagePreference,
+  t,
+  tKey,
+  type LanguagePreference,
+  type MessageKey
+} from "../i18n";
+import { VERSION as KORDOC_VERSION } from "kordoc";
 
-export const HWPX_ENGINE_VERSION = "4.2.5";
+/** The bundled Kordoc engine version, read from the engine itself. */
+export const HWPX_ENGINE_VERSION: string = String(KORDOC_VERSION);
+
+/** Language names are shown in their own language in every interface language. */
+const LANGUAGE_NAMES: Readonly<Record<"ko" | "en", string>> = {
+  ko: "한국어", // i18n-data
+  en: "English"
+};
 
 const TOOLBAR_SKIN_COLOR_FIELDS: ReadonlyArray<{
   key: ToolbarSkinPaletteKey;
-  name: string;
-  description: string;
+  name: MessageKey;
+  description: MessageKey;
 }> = [
-  { key: "toolbarBg", name: "툴바 배경", description: "툴바 전체 배경색" },
-  { key: "toolbarEdge", name: "툴바 아래 경계", description: "툴바 아래쪽 강조선" },
-  { key: "buttonBorder", name: "버튼 테두리", description: "툴바 버튼과 메뉴 테두리" },
-  { key: "logoBody", name: "로고 기본 색", description: "HWP·Word 로고의 기본 색" },
-  { key: "logoAccent", name: "로고 강조 색", description: "HWP·Word 로고의 강조 색" },
-  { key: "logoMuted", name: "로고 보조 색", description: "HWP·Word 로고의 보조 색" },
-  { key: "logoText", name: "로고 글자 색", description: "HWP·Word 로고 안 글자 색" }
+  { key: "toolbarBg", name: "settings.skin.toolbarBg.name", description: "settings.skin.toolbarBg.desc" },
+  { key: "toolbarEdge", name: "settings.skin.toolbarEdge.name", description: "settings.skin.toolbarEdge.desc" },
+  { key: "buttonBorder", name: "settings.skin.buttonBorder.name", description: "settings.skin.buttonBorder.desc" },
+  { key: "logoBody", name: "settings.skin.logoBody.name", description: "settings.skin.logoBody.desc" },
+  { key: "logoAccent", name: "settings.skin.logoAccent.name", description: "settings.skin.logoAccent.desc" },
+  { key: "logoMuted", name: "settings.skin.logoMuted.name", description: "settings.skin.logoMuted.desc" },
+  { key: "logoText", name: "settings.skin.logoText.name", description: "settings.skin.logoText.desc" }
 ];
 
 export interface HanmarkSettingsHost extends TemplateLibraryHost {
@@ -65,11 +90,19 @@ export interface HanmarkSettingTabActions {
   openEditorialPdfThemeManager(): void | Promise<void>;
   activeEditorialPdfThemeSummary(): string;
   refreshPreviews(): void | Promise<void>;
+  /** Redraws the previews' navigation rows (the follow setting changed). */
+  refreshPreviewControls?(): void;
+  /** Redraws the status bar items (their settings changed). */
+  refreshStatusBar?(): void;
+  /** Adds or removes HanMark's section on empty tabs. */
+  refreshStartPanels?(): void;
   refreshToolbar(): void | Promise<void>;
+  /** Re-resolve the interface language after the language setting changed. */
+  applyUiLanguage(): void;
 }
 
 /**
- * HanMark's Korean-first settings surface.
+ * HanMark's settings surface, in the interface language (Korean or English).
  *
  * HWPX is always handled by the bundled Kordoc engine. Pandoc settings are
  * deliberately isolated in the optional advanced DOCX section.
@@ -109,15 +142,17 @@ export class HanmarkSettingTab extends PluginSettingTab {
     const version = ++this.renderVersion;
     const { containerEl } = this;
     containerEl.empty();
-    new Setting(containerEl).setName("HWPX 내보내기").setHeading();
+    this.renderLanguageSettings(containerEl);
+    this.renderCommonExportSettings(containerEl);
+
+    new Setting(containerEl).setName(t("settings.hwpx.heading")).setHeading();
 
     new Setting(containerEl)
-      .setName(`HWPX 엔진 · Kordoc ${HWPX_ENGINE_VERSION}`)
-      .setDesc(
-        "빠른 HWPX, 공문서 HWPX, 이미지 포함과 미리보기를 내장 엔진으로 처리합니다. HWPX 내보내기에는 별도 설치가 필요하지 않습니다."
-      );
+      .setName(t("settings.hwpx.engineName", { version: HWPX_ENGINE_VERSION }))
+      .setDesc(t("settings.hwpx.engineDesc"));
 
     this.renderHwpxSettings(containerEl);
+    this.renderImportSettings(containerEl);
     this.renderImportedImageSettings(containerEl);
     this.renderHtmlExportSettings(containerEl);
     this.renderEditorialPdfSettings(containerEl);
@@ -126,21 +161,78 @@ export class HanmarkSettingTab extends PluginSettingTab {
     this.renderAdvancedDocxSettings(containerEl, version);
   }
 
+  private renderLanguageSettings(container: HTMLElement): void {
+    new Setting(container).setName(t("settings.language.heading")).setHeading();
+
+    new Setting(container)
+      .setName(t("settings.language.ui.name"))
+      .setDesc(t("settings.language.ui.desc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("auto", t("settings.language.ui.auto"))
+          .addOption("ko", LANGUAGE_NAMES.ko)
+          .addOption("en", LANGUAGE_NAMES.en)
+          .setValue(this.host.settings.uiLanguage)
+          .onChange((value) => {
+            void this.changeUiLanguage(normalizeLanguagePreference(value));
+          });
+      });
+
+    new Setting(container)
+      .setName(t("settings.language.output.name"))
+      .setDesc(t("settings.language.output.desc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("auto", t("settings.language.output.auto"))
+          .addOption("ko", LANGUAGE_NAMES.ko)
+          .addOption("en", LANGUAGE_NAMES.en)
+          .setValue(this.host.settings.outputLanguage)
+          .onChange((value) => {
+            void this.changeOutputLanguage(normalizeLanguagePreference(value));
+          });
+      });
+  }
+
+  private renderCommonExportSettings(container: HTMLElement): void {
+    new Setting(container).setName(t("settings.export.heading")).setHeading();
+    new Setting(container)
+      .setName(t("settings.assembleEmbeds.name"))
+      .setDesc(t("settings.assembleEmbeds.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.assembleEmbeds).onChange((enabled) => {
+          void this.changeAssembleEmbeds(enabled);
+        });
+      });
+  }
+
+  private async changeAssembleEmbeds(enabled: boolean): Promise<void> {
+    const previous = this.host.settings.assembleEmbeds;
+    try {
+      this.host.settings.assembleEmbeds = enabled;
+      await this.host.saveSettings();
+      await this.actions.refreshPreviews();
+    } catch (error) {
+      this.host.settings.assembleEmbeds = previous;
+      new Notice(t("settings.assembleEmbeds.saveFailed", { detail: errorMessage(error) }));
+      this.render();
+    }
+  }
+
   private renderHwpxSettings(container: HTMLElement): void {
-    new Setting(container).setName("HWPX 템플릿").setHeading();
+    new Setting(container).setName(t("settings.hwpxTemplate.heading")).setHeading();
 
     const active = activeDocumentTemplate(this.host);
     const templates = availableDocumentTemplates(this.host);
     new Setting(container)
-      .setName("사용할 HWPX 템플릿")
+      .setName(t("settings.hwpxTemplate.name"))
       .setDesc(
         active.builtIn
-          ? `현재 내장 템플릿: ${active.name}`
-          : `현재 사용자 템플릿: ${active.name}`
+          ? t("settings.hwpxTemplate.builtIn", { name: templateDisplayName(active) })
+          : t("settings.hwpxTemplate.custom", { name: active.name })
       )
       .addDropdown((dropdown) => {
         for (const template of templates) {
-          dropdown.addOption(template.id, template.name);
+          dropdown.addOption(template.id, templateDisplayName(template));
         }
         dropdown.setValue(active.id);
         dropdown.onChange((id) => {
@@ -149,7 +241,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       })
       .addButton((button) => {
         button
-          .setButtonText("템플릿 관리")
+          .setButtonText(t("settings.manageTemplates"))
           .setCta()
           .onClick(() => {
             void this.runAction(() => this.actions.openHwpxTemplateManager());
@@ -157,23 +249,100 @@ export class HanmarkSettingTab extends PluginSettingTab {
       });
   }
 
-  private renderImportedImageSettings(container: HTMLElement): void {
-    new Setting(container).setName("문서 가져오기 이미지").setHeading();
+  private renderImportSettings(container: HTMLElement): void {
+    new Setting(container).setName(t("settings.import.heading")).setHeading();
 
     new Setting(container)
-      .setName("가져온 이미지 저장 방식")
-      .setDesc(
-        "HWPX·DOCX·PDF에서 꺼낸 이미지를 어디에 둘지 정합니다. " +
-        "CMDS Eagle 현재 클라우드는 공개 브리지 또는 등록 명령을 먼저 사용합니다."
-      )
+      .setName(t("settings.import.preset.name"))
+      .setDesc(t("settings.import.preset.desc"))
+      .addDropdown((dropdown) => {
+        for (const id of IMPORT_PRESET_IDS) dropdown.addOption(id, tKey(IMPORT_PRESET_LABELS[id].name));
+        dropdown.setValue(this.host.settings.importPreset).onChange((value) => {
+          void this.saveImportSetting(() => {
+            this.host.settings.importPreset = normalizeImportPreset(value);
+          });
+        });
+      });
+
+    const destination = this.host.settings.importDestination;
+    new Setting(container)
+      .setName(t("settings.import.destination.name"))
+      .setDesc(t("settings.import.destination.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("vault", "Vault 첨부 파일 (기본)")
-          .addOption(
-            "cmds-eagle-r2",
-            "CMDS Eagle 현재 클라우드 (R2 폴백 가능)"
-          )
-          .addOption("ask", "가져올 때마다 묻기")
+          .addOption("note-folder", t("settings.import.destination.noteFolder"))
+          .addOption("folder", t("settings.import.destination.folder"))
+          .addOption("ask", t("settings.import.destination.ask"))
+          .setValue(destination.mode)
+          .onChange((value) => {
+            void this.saveImportSetting(() => {
+              this.host.settings.importDestination = normalizeImportDestination({
+                ...this.host.settings.importDestination,
+                mode: value
+              });
+            }, true);
+          });
+      });
+
+    if (destination.mode === "folder") {
+      new Setting(container)
+        .setName(t("settings.import.folder.name"))
+        .setDesc(t("settings.import.folder.desc", { example: "Imports/HanMark" }))
+        .addText((text) => {
+          text
+            .setPlaceholder("Imports/HanMark")
+            .setValue(destination.folder)
+            .onChange((value) => {
+              void this.saveImportSetting(() => {
+                this.host.settings.importDestination = normalizeImportDestination({
+                  ...this.host.settings.importDestination,
+                  folder: value
+                });
+              });
+            });
+        });
+    }
+
+    new Setting(container)
+      .setName(t("settings.import.viewer.name"))
+      .setDesc(t("settings.import.viewer.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.openHangulFilesInHanmark).onChange((enabled) => {
+          void this.saveImportSetting(() => {
+            this.host.settings.openHangulFilesInHanmark = enabled;
+          });
+        });
+      });
+  }
+
+  private async saveImportSetting(apply: () => void, rerender = false): Promise<void> {
+    const previous = {
+      importPreset: this.host.settings.importPreset,
+      importDestination: this.host.settings.importDestination,
+      openHangulFilesInHanmark: this.host.settings.openHangulFilesInHanmark
+    };
+    try {
+      apply();
+      await this.host.saveSettings();
+      if (rerender) this.render();
+    } catch (error) {
+      Object.assign(this.host.settings, previous);
+      new Notice(t("settings.import.saveFailed", { detail: errorMessage(error) }));
+      this.render();
+    }
+  }
+
+  private renderImportedImageSettings(container: HTMLElement): void {
+    new Setting(container).setName(t("settings.importImages.heading")).setHeading();
+
+    new Setting(container)
+      .setName(t("settings.importImages.destination.name"))
+      .setDesc(t("settings.importImages.destination.desc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("vault", t("settings.importImages.destination.vault"))
+          .addOption("cmds-eagle-r2", t("settings.importImages.destination.cmds"))
+          .addOption("ask", t("settings.importImages.destination.ask"))
           .setValue(this.host.settings.importedImageDestination)
           .onChange((value) => {
             const destination: ImportedImageDestination =
@@ -183,13 +352,8 @@ export class HanmarkSettingTab extends PluginSettingTab {
       });
 
     new Setting(container)
-      .setName("로컬 이미지 폴더")
-      .setDesc(
-        "Vault 첨부 파일로 보관할 때 사용할 상대 경로입니다. 예: Attachments/HanMark. " +
-        "비워 두면 Obsidian의 첨부 파일 위치 설정을 그대로 사용합니다. " +
-        "클라우드 업로드가 완료된 HanMark 임시 이미지는 시스템 휴지통을 우선 사용해 정리하며, " +
-        "운영체제 휴지통을 사용할 수 없으면 Obsidian 로컬 휴지통에 안전하게 보존합니다."
-      )
+      .setName(t("settings.importImages.folder.name"))
+      .setDesc(t("settings.importImages.folder.desc", { example: "Attachments/HanMark" }))
       .addText((text) => {
         text
           .setPlaceholder("Attachments/HanMark")
@@ -202,18 +366,15 @@ export class HanmarkSettingTab extends PluginSettingTab {
     const fallback = container.createEl("details", {
       cls: "hanmark-r2-fallback-settings"
     });
-    fallback.createEl("summary", { text: "직접 R2 폴백 설정 (선택)" });
+    fallback.createEl("summary", { text: t("settings.r2.summary") });
     fallback.createEl("p", {
       cls: "setting-item-description",
-      text:
-        "정상적으로 CMDS Eagle가 응답하면 아래 정보는 사용하지 않습니다. " +
-        "브리지를 사용할 수 없을 때만 HanMark가 같은 Worker 계약으로 업로드하며, " +
-        "API 키는 필요할 때 묻고 인증 성공 뒤 세션 메모리에만 두며 설정 파일에는 저장하지 않습니다."
+      text: t("settings.r2.desc")
     });
 
     new Setting(fallback)
-      .setName("Worker URL")
-      .setDesc("예: https://example.workers.dev")
+      .setName(t("settings.r2.workerUrl.name"))
+      .setDesc(t("settings.r2.workerUrl.desc", { example: "https://example.workers.dev" }))
       .addText((text) => {
         text
           .setPlaceholder("https://…workers.dev")
@@ -224,8 +385,8 @@ export class HanmarkSettingTab extends PluginSettingTab {
       });
 
     new Setting(fallback)
-      .setName("Public URL")
-      .setDesc("업로드한 파일을 읽을 공개 R2 주소입니다.")
+      .setName(t("settings.r2.publicUrl.name"))
+      .setDesc(t("settings.r2.publicUrl.desc"))
       .addText((text) => {
         text
           .setPlaceholder("https://…r2.dev")
@@ -237,17 +398,15 @@ export class HanmarkSettingTab extends PluginSettingTab {
   }
 
   private renderHtmlExportSettings(container: HTMLElement): void {
-    new Setting(container).setName("HTML 내보내기").setHeading();
+    new Setting(container).setName(t("settings.html.heading")).setHeading();
 
     new Setting(container)
-      .setName("HTML 테마")
-      .setDesc(
-        "새 HTML 파일에 적용할 화면·인쇄 스타일입니다. 스크립트나 외부 폰트 없이 독립형 파일로 저장합니다."
-      )
+      .setName(t("settings.html.theme.name"))
+      .setDesc(t("settings.html.theme.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("achmage-editorial", "Achmage Editorial (권장)")
-          .addOption("classic", "Classic (기존 스타일)")
+          .addOption("achmage-editorial", t("settings.html.theme.editorial"))
+          .addOption("classic", t("settings.html.theme.classic"))
           .setValue(this.host.settings.htmlExportTheme)
           .onChange((value) => {
             const theme: HtmlExportTheme =
@@ -258,18 +417,18 @@ export class HanmarkSettingTab extends PluginSettingTab {
   }
 
   private renderEditorialPdfSettings(container: HTMLElement): void {
-    new Setting(container).setName("PDF 내보내기").setHeading();
+    new Setting(container).setName(t("settings.pdf.heading")).setHeading();
 
     new Setting(container)
-      .setName("Editorial PDF 테마")
+      .setName(t("settings.pdf.theme.name"))
       .setDesc(
-        `${this.actions.activeEditorialPdfThemeSummary()} · ` +
-        "키 컬러와 표지·머리말·꼬리말을 쉬운 단계로 바꾸고, " +
-        "WCAG 대비 공식에 따른 가독성 진단을 확인할 수 있습니다."
+        t("settings.pdf.theme.desc", {
+          summary: this.actions.activeEditorialPdfThemeSummary()
+        })
       )
       .addButton((button) => {
         button
-          .setButtonText("PDF 테마 관리")
+          .setButtonText(t("settings.pdf.theme.manage"))
           .setCta()
           .onClick(() => {
             void this.runAction(() =>
@@ -286,31 +445,31 @@ export class HanmarkSettingTab extends PluginSettingTab {
       try { await this.host.saveSettings(); }
       catch (error) { this.host.settings.editorialPdfLayout = previous; throw error; }
     };
-    new Setting(container).setName("PDF 기본 편집 방식")
-      .setDesc("2단 A는 전체 폭 그림, B는 한 단 폭 그림을 배치합니다. 내보내기 창에서 이번 출력만 변경할 수 있습니다.")
-      .addDropdown(dropdown => dropdown.addOptions(EDITORIAL_PDF_LAYOUT_CHOICES)
+    new Setting(container).setName(t("settings.pdf.layout.name"))
+      .setDesc(t("settings.pdf.layout.desc"))
+      .addDropdown(dropdown => dropdown.addOptions(editorialPdfLayoutChoices())
         .setValue(this.host.settings.editorialPdfLayout.mode)
         .onChange(mode => { void this.runAction(() => update({ mode })); }));
-    new Setting(container).setName("PDF 가운데 간격")
+    new Setting(container).setName(t("settings.pdf.gap.name"))
       .addDropdown(dropdown => dropdown.addOptions({ "8": "8mm", "10": "10mm", "12": "12mm" })
         .setValue(String(this.host.settings.editorialPdfLayout.columnGapMm))
         .onChange(value => { void this.runAction(() => update({ columnGapMm: Number(value) })); }));
-    new Setting(container).setName("PDF 표 폭")
-      .setDesc("2단 출력에 적용합니다. 자동은 표마다 읽기 좋은 폭을 고르며 그림 A/B 설정과 독립적입니다.")
-      .addDropdown(dropdown => dropdown.addOptions(EDITORIAL_PDF_TABLE_WIDTH_CHOICES)
+    new Setting(container).setName(t("settings.pdf.tableWidth.name"))
+      .setDesc(t("settings.pdf.tableWidth.desc"))
+      .addDropdown(dropdown => dropdown.addOptions(editorialPdfTableWidthChoices())
         .setValue(this.host.settings.editorialPdfLayout.tableWidth)
         .onChange(tableWidth => { void this.runAction(() => update({ tableWidth })); }));
-    new Setting(container).setName("PDF 최상위 제목에서 새 페이지 시작")
-      .setDesc("표지 제목을 제외한 본문 최상위 제목을 기준으로 합니다. 연속 제목은 한 묶음으로 처리합니다.")
+    new Setting(container).setName(t("settings.pdf.sectionBreaks.name"))
+      .setDesc(t("settings.pdf.sectionBreaks.desc"))
       .addToggle(toggle => toggle.setValue(this.host.settings.editorialPdfLayout.sectionPageBreaks)
         .onChange(sectionPageBreaks => { void this.runAction(() => update({ sectionPageBreaks })); }));
   }
 
   private renderToolbarSettings(container: HTMLElement): void {
-    new Setting(container).setName("화면").setHeading();
+    new Setting(container).setName(t("settings.screen.heading")).setHeading();
     new Setting(container)
-      .setName("시작할 때 HanMark 툴바 표시")
-      .setDesc("Obsidian을 열면 Markdown 편집기 위에 HanMark 툴바를 표시합니다.")
+      .setName(t("settings.toolbarOnStartup.name"))
+      .setDesc(t("settings.toolbarOnStartup.desc"))
       .addToggle((toggle) => {
         toggle
           .setValue(this.host.settings.showToolbarOnStartup)
@@ -319,10 +478,36 @@ export class HanmarkSettingTab extends PluginSettingTab {
           });
       });
     new Setting(container)
-      .setName("실시간 HWPX 미리보기")
-      .setDesc(
-        "끄면 노트 입력·전환 때 HWPX 미리보기를 자동 갱신하지 않습니다. 미리보기 명령을 다시 실행하면 수동으로 갱신할 수 있습니다."
-      )
+      .setName(t("settings.toolbarLook.name"))
+      .setDesc(t("settings.toolbarLook.desc"))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("classic", t("settings.toolbarLook.classic"))
+          .addOption("minimal", t("settings.toolbarLook.minimal"))
+          .setValue(this.host.settings.toolbarLook)
+          .onChange((value) => {
+            void this.changeToolbarDisplay("toolbarLook", value === "minimal" ? "minimal" : "classic");
+          });
+      });
+    new Setting(container)
+      .setName(t("settings.toolbarPeek.name"))
+      .setDesc(t("settings.toolbarPeek.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.toolbarPeek).onChange((enabled) => {
+          void this.changeToolbarDisplay("toolbarPeek", enabled);
+        });
+      });
+    new Setting(container)
+      .setName(t("settings.toolbarReading.name"))
+      .setDesc(t("settings.toolbarReading.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.toolbarFoldFormatInReading).onChange((enabled) => {
+          void this.changeToolbarDisplay("toolbarFoldFormatInReading", enabled);
+        });
+      });
+    new Setting(container)
+      .setName(t("settings.livePreview.name"))
+      .setDesc(t("settings.livePreview.desc"))
       .addToggle((toggle) => {
         toggle
           .setValue(this.host.settings.enableLivePreview)
@@ -330,19 +515,61 @@ export class HanmarkSettingTab extends PluginSettingTab {
             void this.changeLivePreview(enabled);
           });
       });
+    new Setting(container)
+      .setName(t("settings.previewAutoPause.name"))
+      .setDesc(t("settings.previewAutoPause.desc"))
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.host.settings.previewAutoPause)
+          .onChange((enabled) => {
+            void this.changePreviewAutoPause(enabled);
+          });
+      });
+    new Setting(container)
+      .setName(t("settings.previewFollow.name"))
+      .setDesc(t("settings.previewFollow.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.previewFollowCursor).onChange((enabled) => {
+          void this.changePreviewFollow(enabled);
+        });
+      });
+    new Setting(container)
+      .setName(t("settings.statusCharCount.name"))
+      .setDesc(t("settings.statusCharCount.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.statusCharCount).onChange((enabled) => {
+          void this.changeStatusBar("statusCharCount", enabled);
+        });
+      });
+    new Setting(container)
+      .setName(t("settings.statusGongmunForm.name"))
+      .setDesc(t("settings.statusGongmunForm.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.statusGongmunForm).onChange((enabled) => {
+          void this.changeStatusBar("statusGongmunForm", enabled);
+        });
+      });
+    new Setting(container)
+      .setName(t("settings.startPanel.name"))
+      .setDesc(t("settings.startPanel.desc"))
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.showStartPanel).onChange((enabled) => {
+          void this.changeStartPanel(enabled);
+        });
+      });
     this.renderToolbarSkinSettings(container);
   }
 
   private renderToolbarSkinSettings(container: HTMLElement): void {
-    new Setting(container).setName("툴바 색상").setHeading();
+    new Setting(container).setName(t("settings.skin.heading")).setHeading();
     new Setting(container)
-      .setName("색상 모드")
-      .setDesc("자동은 Obsidian의 밝은·어두운 테마 전환을 그대로 따릅니다.")
+      .setName(t("settings.skin.mode.name"))
+      .setDesc(t("settings.skin.mode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("auto", "Obsidian 테마에 맞춤")
-          .addOption("light", "항상 밝은 팔레트")
-          .addOption("dark", "항상 어두운 팔레트")
+          .addOption("auto", t("settings.skin.mode.auto"))
+          .addOption("light", t("settings.skin.mode.light"))
+          .addOption("dark", t("settings.skin.mode.dark"))
           .setValue(this.host.settings.toolbarSkinMode)
           .onChange((value) => {
             void this.changeToolbarSkinMode(normalizeToolbarSkinMode(value));
@@ -355,12 +582,12 @@ export class HanmarkSettingTab extends PluginSettingTab {
     const panel = tabs.createDiv({ cls: "hwp-toolbar-skin-tab-panel" });
     const lightButton = tabList.createEl("button", {
       cls: "hwp-toolbar-skin-tab",
-      text: "밝은 팔레트",
+      text: t("settings.skin.light"),
       attr: { type: "button" }
     });
     const darkButton = tabList.createEl("button", {
       cls: "hwp-toolbar-skin-tab",
-      text: "어두운 팔레트",
+      text: t("settings.skin.dark"),
       attr: { type: "button" }
     });
 
@@ -369,22 +596,22 @@ export class HanmarkSettingTab extends PluginSettingTab {
       darkButton.classList.toggle("is-active", selected === "dark");
       panel.empty();
       new Setting(panel)
-        .setName(selected === "light" ? "밝은 팔레트" : "어두운 팔레트")
+        .setName(selected === "light" ? t("settings.skin.light") : t("settings.skin.dark"))
         .setHeading();
       for (const field of TOOLBAR_SKIN_COLOR_FIELDS) {
         this.renderToolbarSkinColor(
           panel,
           selected,
           field.key,
-          field.name,
-          field.description
+          tKey(field.name),
+          tKey(field.description)
         );
       }
 
       if (selected === "dark") {
         new Setting(panel)
-          .setName("기존 팔레트")
-          .setDesc("HanMark 2.4.2에서 제공하던 어두운 툴바 팔레트입니다.")
+          .setName(t("settings.skin.presets.name"))
+          .setDesc(t("settings.skin.presets.desc"))
           .addButton((button) => {
             button.setButtonText("Charcoal Minimal").onClick(() => {
               void this.applyToolbarDarkPreset("charcoal-minimal", renderPanel);
@@ -403,10 +630,10 @@ export class HanmarkSettingTab extends PluginSettingTab {
       }
 
       new Setting(panel)
-        .setName("전체 색상 초기화")
-        .setDesc("밝은·어두운 팔레트를 HanMark 기본값으로 되돌립니다.")
+        .setName(t("settings.skin.reset.name"))
+        .setDesc(t("settings.skin.reset.desc"))
         .addButton((button) => {
-          button.setButtonText("초기화").onClick(() => {
+          button.setButtonText(t("settings.skin.reset.button")).onClick(() => {
             void this.resetToolbarSkin(renderPanel);
           });
         });
@@ -470,19 +697,15 @@ export class HanmarkSettingTab extends PluginSettingTab {
     const details = container.createEl("details", {
       cls: "hanmark-docx-settings"
     });
-    details.createEl("summary", { text: "고급 DOCX / Pandoc 설정" });
+    details.createEl("summary", { text: t("settings.docx.summary") });
     details.createEl("p", {
       cls: "setting-item-description",
-      text:
-        "DOCX 파일 생성과 Windows Word PDF 미리보기용 선택 설정입니다. " +
-        "HWPX 내보내기에는 영향을 주지 않습니다."
+      text: t("settings.docx.desc")
     });
 
     new Setting(details)
-      .setName("Pandoc 실행 파일 경로")
-      .setDesc(
-        "고급 DOCX 내보내기에서만 사용합니다. 명령 이름(pandoc) 또는 실행 파일의 전체 경로를 입력하세요."
-      )
+      .setName(t("settings.docx.pandoc.name"))
+      .setDesc(t("settings.docx.pandoc.desc", { command: "pandoc" }))
       .addText((text) => {
         text
           .setPlaceholder("pandoc")
@@ -496,8 +719,8 @@ export class HanmarkSettingTab extends PluginSettingTab {
       cls: "hanmark-word-template-setting"
     });
     new Setting(wordTemplateContainer)
-      .setName("Word 템플릿")
-      .setDesc("템플릿 목록을 불러오는 중입니다.");
+      .setName(t("settings.docx.wordTemplate.name"))
+      .setDesc(t("settings.docx.wordTemplate.loading"));
 
     void this.renderWordTemplateSetting(
       wordTemplateContainer,
@@ -506,26 +729,22 @@ export class HanmarkSettingTab extends PluginSettingTab {
       if (version !== this.renderVersion) return;
       wordTemplateContainer.empty();
       new Setting(wordTemplateContainer)
-        .setName("Word 템플릿")
-        .setDesc(`템플릿 목록을 불러오지 못했습니다: ${errorMessage(error)}`)
+        .setName(t("settings.docx.wordTemplate.name"))
+        .setDesc(t("settings.docx.wordTemplate.loadFailed", { detail: errorMessage(error) }))
         .addButton((button) => {
-          button.setButtonText("템플릿 관리").onClick(() => {
+          button.setButtonText(t("settings.manageTemplates")).onClick(() => {
             void this.runAction(() => this.actions.openWordTemplateManager());
           });
         });
     });
 
     new Setting(details)
-      .setName("DOCX 미리보기 방식")
-      .setDesc(
-        "실제 DOCX 빠른 미리보기는 새로고침하거나 이 모드를 선택할 때만 Pandoc을 실행합니다. " +
-        "Pandoc을 사용할 수 없으면 설치 없이 의미 기반 미리보기로 전환합니다. " +
-        "Word PDF는 Windows의 Microsoft Word를 사용자 요청 시에만 실행합니다."
-      )
+      .setName(t("settings.docx.previewMode.name"))
+      .setDesc(t("settings.docx.previewMode.desc"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("fast-docx", "빠른 미리보기")
-          .addOption("word-pdf", "Windows Word PDF")
+          .addOption("fast-docx", t("settings.docx.previewMode.fast"))
+          .addOption("word-pdf", t("settings.docx.previewMode.wordPdf"))
           .setValue(this.host.settings.docxPreviewMode)
           .onChange((value) => {
             const mode: DocxPreviewMode =
@@ -545,10 +764,10 @@ export class HanmarkSettingTab extends PluginSettingTab {
     container.empty();
     if (!templates.length) {
       new Setting(container)
-        .setName("Word 템플릿")
-        .setDesc("저장된 Word 템플릿이 없습니다. 템플릿 관리자에서 만들어 주세요.")
+        .setName(t("settings.docx.wordTemplate.name"))
+        .setDesc(t("settings.docx.wordTemplate.empty"))
         .addButton((button) => {
-          button.setButtonText("템플릿 관리").setCta().onClick(() => {
+          button.setButtonText(t("settings.manageTemplates")).setCta().onClick(() => {
             void this.runAction(() => this.actions.openWordTemplateManager());
           });
         });
@@ -559,8 +778,8 @@ export class HanmarkSettingTab extends PluginSettingTab {
     const activeExists = templates.some((template) => template.id === activeId);
     const selectedId = activeExists ? activeId : templates[0].id;
     new Setting(container)
-      .setName("사용할 Word 템플릿")
-      .setDesc("고급 DOCX 내보내기와 DOCX 미리보기에 적용합니다.")
+      .setName(t("settings.docx.wordTemplate.active.name"))
+      .setDesc(t("settings.docx.wordTemplate.active.desc"))
       .addDropdown((dropdown) => {
         for (const template of templates) {
           dropdown.addOption(template.id, template.name);
@@ -571,10 +790,41 @@ export class HanmarkSettingTab extends PluginSettingTab {
         });
       })
       .addButton((button) => {
-        button.setButtonText("템플릿 관리").setCta().onClick(() => {
+        button.setButtonText(t("settings.manageTemplates")).setCta().onClick(() => {
           void this.runAction(() => this.actions.openWordTemplateManager());
         });
       });
+  }
+
+  private async changeUiLanguage(value: LanguagePreference): Promise<void> {
+    const previous = this.host.settings.uiLanguage;
+    if (previous === value) return;
+    try {
+      this.host.settings.uiLanguage = value;
+      await this.host.saveSettings();
+    } catch (error) {
+      this.host.settings.uiLanguage = previous;
+      new Notice(t("settings.language.saveFailed", { detail: errorMessage(error) }));
+      this.render();
+      return;
+    }
+    this.actions.applyUiLanguage();
+    new Notice(t("settings.language.restartNotice"));
+    this.render();
+    await this.runAction(() => this.refreshAllUi());
+  }
+
+  private async changeOutputLanguage(value: LanguagePreference): Promise<void> {
+    const previous = this.host.settings.outputLanguage;
+    try {
+      this.host.settings.outputLanguage = value;
+      await this.host.saveSettings();
+      await this.actions.refreshPreviews();
+    } catch (error) {
+      this.host.settings.outputLanguage = previous;
+      new Notice(t("settings.language.saveFailed", { detail: errorMessage(error) }));
+      this.render();
+    }
   }
 
   private async changeHwpxTemplate(id: string): Promise<void> {
@@ -583,7 +833,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.refreshAllUi();
       this.render();
     } catch (error) {
-      new Notice(`HWPX 템플릿을 바꾸지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.hwpxTemplate.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -595,7 +845,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.refreshAllUi();
       this.render();
     } catch (error) {
-      new Notice(`Word 템플릿을 바꾸지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.docx.wordTemplate.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -605,7 +855,24 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
       await this.actions.refreshToolbar();
     } catch (error) {
-      new Notice(`툴바 설정을 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.toolbarOnStartup.saveFailed", { detail: errorMessage(error) }));
+    }
+  }
+
+  /** Toolbar look, peek, and reading-view folding (R-028); rolls back when saving fails. */
+  private async changeToolbarDisplay<K extends "toolbarLook" | "toolbarPeek" | "toolbarFoldFormatInReading">(
+    key: K,
+    value: HanmarkSettings[K]
+  ): Promise<void> {
+    const previous = this.host.settings[key];
+    try {
+      this.host.settings[key] = value;
+      await this.host.saveSettings();
+      await this.actions.refreshToolbar();
+    } catch (error) {
+      this.host.settings[key] = previous;
+      new Notice(t("settings.toolbarOnStartup.saveFailed", { detail: errorMessage(error) }));
+      this.render();
     }
   }
 
@@ -615,9 +882,59 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
       if (enabled) await this.actions.refreshPreviews();
     } catch (error) {
-      new Notice(
-        `실시간 미리보기 설정을 저장하지 못했습니다: ${errorMessage(error)}`
-      );
+      new Notice(t("settings.livePreview.saveFailed", { detail: errorMessage(error) }));
+    }
+  }
+
+  private async changePreviewAutoPause(enabled: boolean): Promise<void> {
+    const previous = this.host.settings.previewAutoPause;
+    try {
+      this.host.settings.previewAutoPause = enabled;
+      await this.host.saveSettings();
+      await this.actions.refreshPreviews();
+    } catch (error) {
+      this.host.settings.previewAutoPause = previous;
+      new Notice(t("settings.previewAutoPause.saveFailed", { detail: errorMessage(error) }));
+      this.render();
+    }
+  }
+
+  private async changeStatusBar(key: "statusCharCount" | "statusGongmunForm", enabled: boolean): Promise<void> {
+    const previous = this.host.settings[key];
+    try {
+      this.host.settings[key] = enabled;
+      await this.host.saveSettings();
+      this.actions.refreshStatusBar?.();
+    } catch (error) {
+      this.host.settings[key] = previous;
+      new Notice(t("settings.statusBar.saveFailed", { detail: errorMessage(error) }));
+      this.render();
+    }
+  }
+
+  private async changeStartPanel(enabled: boolean): Promise<void> {
+    const previous = this.host.settings.showStartPanel;
+    try {
+      this.host.settings.showStartPanel = enabled;
+      await this.host.saveSettings();
+      this.actions.refreshStartPanels?.();
+    } catch (error) {
+      this.host.settings.showStartPanel = previous;
+      new Notice(t("settings.startPanel.saveFailed", { detail: errorMessage(error) }));
+      this.render();
+    }
+  }
+
+  private async changePreviewFollow(enabled: boolean): Promise<void> {
+    const previous = this.host.settings.previewFollowCursor;
+    try {
+      this.host.settings.previewFollowCursor = enabled;
+      await this.host.saveSettings();
+      this.actions.refreshPreviewControls?.();
+    } catch (error) {
+      this.host.settings.previewFollowCursor = previous;
+      new Notice(t("settings.previewFollow.saveFailed", { detail: errorMessage(error) }));
+      this.render();
     }
   }
 
@@ -627,7 +944,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
       await this.actions.refreshToolbar();
     } catch (error) {
-      new Notice(`툴바 색상 모드를 저장하지 못했습니다. ${errorMessage(error)}`);
+      new Notice(t("settings.skin.mode.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -645,7 +962,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
       await this.actions.refreshToolbar();
     } catch (error) {
-      new Notice(`툴바 색상을 저장하지 못했습니다. ${errorMessage(error)}`);
+      new Notice(t("settings.skin.color.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -663,7 +980,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.actions.refreshToolbar();
       refreshPanel();
     } catch (error) {
-      new Notice(`툴바 팔레트를 적용하지 못했습니다. ${errorMessage(error)}`);
+      new Notice(t("settings.skin.presets.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -674,7 +991,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.actions.refreshToolbar();
       refreshPanel();
     } catch (error) {
-      new Notice(`툴바 색상을 초기화하지 못했습니다. ${errorMessage(error)}`);
+      new Notice(t("settings.skin.reset.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -684,7 +1001,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
       await this.actions.refreshPreviews();
     } catch (error) {
-      new Notice(`Pandoc 경로를 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.docx.pandoc.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -694,7 +1011,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
       await this.actions.refreshPreviews();
     } catch (error) {
-      new Notice(`DOCX 미리보기 설정을 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.docx.previewMode.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -705,7 +1022,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
     } catch (error) {
       this.host.settings.htmlExportTheme = previous;
-      new Notice(`HTML 테마 설정을 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.html.theme.saveFailed", { detail: errorMessage(error) }));
       this.render();
     }
   }
@@ -719,7 +1036,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
     } catch (error) {
       this.host.settings.importedImageDestination = previous;
-      new Notice(`이미지 저장 방식을 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.importImages.destination.saveFailed", { detail: errorMessage(error) }));
       this.render();
     }
   }
@@ -732,7 +1049,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
     } catch (error) {
       this.host.settings.importedImageFolder = previous;
-      new Notice(`이미지 폴더를 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.importImages.folder.saveFailed", { detail: errorMessage(error) }));
       this.render();
     }
   }
@@ -747,7 +1064,7 @@ export class HanmarkSettingTab extends PluginSettingTab {
       await this.host.saveSettings();
     } catch (error) {
       this.host.settings[key] = previous;
-      new Notice(`R2 폴백 설정을 저장하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("settings.r2.saveFailed", { detail: errorMessage(error) }));
       this.render();
     }
   }

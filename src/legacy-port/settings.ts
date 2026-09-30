@@ -1,4 +1,13 @@
 import type { HanmarkTemplateLibrary } from "../io/templateLibrary";
+import { normalizeFormMemory, type FormMemory } from "../io/formMemory";
+import { normalizeRecentExports, type RecentExport } from "../io/recentExports";
+import { normalizeLanguagePreference, type LanguagePreference } from "../i18n";
+import {
+  DEFAULT_IMPORT_DESTINATION,
+  normalizeImportPreset,
+  type ImportDestination,
+  type ImportPresetId
+} from "../io/importOptions";
 import { normalizeEditorialPdfLayout, type EditorialPdfLayout } from "../io/editorialPdfLayout";
 import {
   emptyEditorialPdfThemeLibrary,
@@ -10,6 +19,8 @@ export type DocxPreviewMode = "fast-docx" | "word-pdf";
 export type HtmlExportTheme = "achmage-editorial" | "classic";
 export type ImportedImageDestination = "vault" | "cmds-eagle-r2" | "ask";
 export type ToolbarPosition = "top";
+/** "classic" is the Hangul-style blue toolbar; "minimal" follows the Obsidian theme (R-028). */
+export type ToolbarLook = "classic" | "minimal";
 export type PreviewPosition = "right";
 export type ToolbarSkinMode = "auto" | "light" | "dark";
 export type ToolbarSkinPaletteKey =
@@ -103,7 +114,7 @@ export interface CustomFontEntry {
  * small prevents the retired Python and one-slot HWPX settings from returning.
  */
 export interface HanmarkSettings extends Record<string, unknown> {
-  settingsVersion: 11;
+  settingsVersion: 12;
   pandocPath: string;
   toolbarPosition: ToolbarPosition;
   showToolbarOnStartup: boolean;
@@ -130,10 +141,48 @@ export interface HanmarkSettings extends Record<string, unknown> {
   /** Named Editorial PDF themes are Vault-local and contain no resolved colors. */
   editorialPdfThemeLibrary: EditorialPdfThemeLibraryV1;
   editorialPdfLayout: EditorialPdfLayout;
+  /** Interface language: follow Obsidian ("auto") or pin Korean/English (2.7.0). */
+  uiLanguage: LanguagePreference;
+  /** Language of labels written into exported documents; "auto" reads the document. */
+  outputLanguage: LanguagePreference;
+  /** Stop automatic live-preview refreshes for notes whose preview renders slowly. */
+  previewAutoPause: boolean;
+  /** Conversion style selected first in the import window. */
+  importPreset: ImportPresetId;
+  /** Where notes created by an import go. */
+  importDestination: ImportDestination;
+  /** Open .hwp/.hwpx files in HanMark's read-only viewer (applies after restart). */
+  openHangulFilesInHanmark: boolean;
+  /** Inline embedded notes before every export (note assembly, 2.7.0 W6). */
+  assembleEmbeds: boolean;
+  /** What the HWPX preview shows when it opens: quick HWPX or the official-document form (R-026). */
+  hwpxPreviewMode: "quick" | "gongmun";
+  /** Toolbar folded to a slim strip (R-028); hiding it completely stays `showToolbarOnStartup`. */
+  toolbarCollapsed: boolean;
+  /** A folded toolbar opens over the note while the pointer rests on the strip. */
+  toolbarPeek: boolean;
+  toolbarLook: ToolbarLook;
+  /** Fold the formatting row while a note is in reading view. */
+  toolbarFoldFormatInReading: boolean;
+  /** Last text and highlight colors, applied with one click. */
+  toolbarTextColor: string;
+  toolbarHighlightColor: string;
+  /** HanMark's start panel in empty tabs. */
+  showStartPanel: boolean;
+  /** Files HanMark recently wrote into the vault, newest first. */
+  recentExports: RecentExport[];
+  /** The HWPX preview scrolls to the part of the note being edited. */
+  previewFollowCursor: boolean;
+  /** Korean character counts in the status bar. */
+  statusCharCount: boolean;
+  /** The note's official-document form in the status bar. */
+  statusGongmunForm: boolean;
+  /** Official-document form last chosen for each note (path → form id). */
+  gongmunFormByNote: FormMemory;
 }
 
 export const DEFAULT_HANMARK_SETTINGS: Readonly<HanmarkSettings> = Object.freeze({
-  settingsVersion: 11,
+  settingsVersion: 12,
   pandocPath: "pandoc",
   toolbarPosition: "top",
   showToolbarOnStartup: true,
@@ -153,7 +202,27 @@ export const DEFAULT_HANMARK_SETTINGS: Readonly<HanmarkSettings> = Object.freeze
   toolbarSkinMode: "auto",
   toolbarSkin: cloneToolbarSkin(TOOLBAR_SKIN_DEFAULTS),
   editorialPdfThemeLibrary: emptyEditorialPdfThemeLibrary(),
-  editorialPdfLayout: normalizeEditorialPdfLayout(undefined)
+  editorialPdfLayout: normalizeEditorialPdfLayout(undefined),
+  uiLanguage: "auto",
+  outputLanguage: "auto",
+  previewAutoPause: true,
+  importPreset: "default",
+  importDestination: { ...DEFAULT_IMPORT_DESTINATION },
+  openHangulFilesInHanmark: true,
+  assembleEmbeds: true,
+  hwpxPreviewMode: "quick",
+  toolbarCollapsed: false,
+  toolbarPeek: false,
+  toolbarLook: "classic",
+  toolbarFoldFormatInReading: true,
+  toolbarTextColor: "#1A73E8",
+  toolbarHighlightColor: "#FFF59D",
+  showStartPanel: true,
+  recentExports: [],
+  previewFollowCursor: true,
+  statusCharCount: true,
+  statusGongmunForm: true,
+  gongmunFormByNote: {}
 });
 
 export type HanmarkRuntimePlatform = "windows" | "macos" | "linux";
@@ -333,7 +402,7 @@ export function normalizeHanmarkSettings(
 
   return {
     ...preserved,
-    settingsVersion: 11,
+    settingsVersion: 12,
     pandocPath: nonEmptyString(data.pandocPath, DEFAULT_HANMARK_SETTINGS.pandocPath),
     toolbarPosition: "top",
     showToolbarOnStartup:
@@ -370,6 +439,46 @@ export function normalizeHanmarkSettings(
     editorialPdfLayout: normalizeEditorialPdfLayout(data.editorialPdfLayout),
     editorialPdfThemeLibrary: normalizeEditorialPdfThemeLibrary(
       data.editorialPdfThemeLibrary
-    )
+    ),
+    uiLanguage: normalizeLanguagePreference(data.uiLanguage),
+    outputLanguage: normalizeLanguagePreference(data.outputLanguage),
+    previewAutoPause:
+      typeof data.previewAutoPause === "boolean"
+        ? data.previewAutoPause
+        : DEFAULT_HANMARK_SETTINGS.previewAutoPause,
+    importPreset: normalizeImportPreset(data.importPreset),
+    importDestination: normalizeImportDestination(data.importDestination),
+    openHangulFilesInHanmark:
+      typeof data.openHangulFilesInHanmark === "boolean"
+        ? data.openHangulFilesInHanmark
+        : DEFAULT_HANMARK_SETTINGS.openHangulFilesInHanmark,
+    assembleEmbeds:
+      typeof data.assembleEmbeds === "boolean"
+        ? data.assembleEmbeds
+        : DEFAULT_HANMARK_SETTINGS.assembleEmbeds,
+    hwpxPreviewMode: data.hwpxPreviewMode === "gongmun" ? "gongmun" : "quick",
+    toolbarCollapsed: booleanOr(data.toolbarCollapsed, DEFAULT_HANMARK_SETTINGS.toolbarCollapsed),
+    toolbarPeek: booleanOr(data.toolbarPeek, DEFAULT_HANMARK_SETTINGS.toolbarPeek),
+    toolbarLook: data.toolbarLook === "minimal" ? "minimal" : "classic",
+    toolbarFoldFormatInReading: booleanOr(data.toolbarFoldFormatInReading, DEFAULT_HANMARK_SETTINGS.toolbarFoldFormatInReading),
+    toolbarTextColor: normalizeToolbarHex(data.toolbarTextColor, DEFAULT_HANMARK_SETTINGS.toolbarTextColor),
+    toolbarHighlightColor: normalizeToolbarHex(data.toolbarHighlightColor, DEFAULT_HANMARK_SETTINGS.toolbarHighlightColor),
+    showStartPanel: booleanOr(data.showStartPanel, DEFAULT_HANMARK_SETTINGS.showStartPanel),
+    recentExports: normalizeRecentExports(data.recentExports),
+    previewFollowCursor: booleanOr(data.previewFollowCursor, DEFAULT_HANMARK_SETTINGS.previewFollowCursor),
+    statusCharCount: booleanOr(data.statusCharCount, DEFAULT_HANMARK_SETTINGS.statusCharCount),
+    statusGongmunForm: booleanOr(data.statusGongmunForm, DEFAULT_HANMARK_SETTINGS.statusGongmunForm),
+    gongmunFormByNote: normalizeFormMemory(data.gongmunFormByNote)
   };
+}
+
+function booleanOr(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+/** Accepts only a known mode and a safe Vault-relative folder (see normalizeImportedImageFolder). */
+export function normalizeImportDestination(value: unknown): ImportDestination {
+  const data = isRecord(value) ? value : {};
+  const mode = data.mode === "folder" || data.mode === "ask" ? data.mode : "note-folder";
+  return { mode, folder: normalizeImportedImageFolder(data.folder) };
 }

@@ -15,6 +15,7 @@ import {
   createFileGateway,
   type SelectedExternalFile
 } from "./fileGateway";
+import { t } from "../i18n";
 
 export interface HanmarkSettingsPlugin extends TemplateLibraryHost {
   app: App;
@@ -24,7 +25,7 @@ export interface HanmarkSettingsPlugin extends TemplateLibraryHost {
 export async function pickHwpxFile(
   app: App,
   plugin?: unknown,
-  title = "스타일을 가져올 HWPX 선택"
+  title = t("tableStyle.pickTitle")
 ): Promise<SelectedExternalFile | null> {
   const selected = await createFileGateway(app, plugin).pickFiles({
     title,
@@ -50,20 +51,20 @@ export async function importTableStyle(plugin: HanmarkSettingsPlugin): Promise<b
   const selected = await pickHwpxFile(
     plugin.app,
     plugin,
-    "표 스타일을 가져올 HWPX 선택"
+    t("tableStyle.pickTableTitle")
   );
   if (!selected) return false;
   const buffer = bytesAsArrayBuffer(selected.bytes);
   const validation = await validateHwpx(buffer);
   if (!validation.ok) {
     throw new Error(
-      `표 스타일 원본 검증 실패: ${
-        validation.issues[0]?.message || "올바르지 않은 HWPX"
-      }`
+      t("tableStyle.validationFailed", {
+        detail: validation.issues[0]?.message || t("tableStyle.invalidHwpx")
+      })
     );
   }
   const profile = await hwpxToProfile(buffer);
-  if (!profile.tables.length) throw new Error("선택한 HWPX에 가져올 표가 없습니다.");
+  if (!profile.tables.length) throw new Error(t("tableStyle.noTables"));
 
   const active = activeTemplateItem(plugin);
   const sourceName = selected.name;
@@ -79,12 +80,12 @@ export async function importTableStyle(plugin: HanmarkSettingsPlugin): Promise<b
     setActiveTemplateInMemory(plugin, record.id);
   } else {
     const record = getTemplateLibrary(plugin).customTemplates[active.id];
-    if (!record) throw new Error("활성 사용자 HWPX 템플릿을 찾을 수 없습니다.");
+    if (!record) throw new Error(t("tableStyle.activeNotFound"));
     putTemplateRecord(plugin, { ...record, tableStyle: profile, sourceName });
   }
   await plugin.saveSettings();
   new Notice(
-    `활성 HWPX 템플릿에 표 스타일 추가: ${sourceName} · 표 ${profile.tables.length}개`
+    t("tableStyle.added", { file: sourceName, count: profile.tables.length })
   );
   return true;
 }
@@ -97,5 +98,5 @@ export async function clearTableStyle(plugin: HanmarkSettingsPlugin): Promise<vo
   if (record.documentStyle) putTemplateRecord(plugin, { ...record, tableStyle: undefined });
   else deleteTemplateRecordInMemory(plugin, record.id);
   await plugin.saveSettings();
-  new Notice("활성 HWPX 템플릿에서 표 스타일을 제거했습니다.");
+  new Notice(t("tableStyle.removed"));
 }

@@ -1,4 +1,5 @@
 import type { DocxPreviewMode } from "./settings";
+import { t } from "../i18n";
 
 export const WORD_STYLE_IDS = [
   "Normal",
@@ -179,10 +180,10 @@ export function parseWordTemplateJson(json: string): WordTemplateSpec {
   try {
     value = JSON.parse(json);
   } catch {
-    throw new Error("Word template JSON is invalid.");
+    throw new Error(t("wordTemplate.error.invalidJson"));
   }
   if (!isWordTemplateSpec(value)) {
-    throw new Error("Word template does not match the HanMark template schema.");
+    throw new Error(t("wordTemplate.error.schema"));
   }
   return value;
 }

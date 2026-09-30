@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import JSZip from "jszip";
+import { t } from "../src/i18n";
 import type { DocumentStyleProfile } from "../src/io/documentStyle";
 import {
   buildReferenceDocx,
@@ -161,7 +162,7 @@ test("multi-template store uses Vault-relative storage and validates JSON", asyn
   assert.match(store.getPreviewCacheKey(second, "# 문서", "fast-docx"), /-fast-docx-v3$/);
   assert.throws(
     () => parseWordTemplateJson('{"version":1,"id":"../escape"}'),
-    /schema/
+    (error: unknown) => error instanceof Error && error.message === t("wordTemplate.error.schema")
   );
   assert.ok([...storage.files.keys()].every((path) => path.startsWith(".obsidian/plugins/hanmark/")));
 });

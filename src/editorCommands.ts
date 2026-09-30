@@ -1,10 +1,26 @@
-import { type Editor, Notice, Plugin } from "obsidian";
+import { type App, type Editor, Notice, Plugin } from "obsidian";
+import { t } from "./i18n";
+import { promptText } from "./ui/dialogs";
+import { markdownTable } from "./utils/markdownTable";
 
 type TextTransform = (value: string) => string;
 
-function promptUser(message: string, defaultValue: string): string | null {
-  const promptFunction = window["prompt"].bind(window);
-  return promptFunction(message, defaultValue);
+/** Numbered header and cell placeholders of an inserted table, in the interface language. */
+export function tableLabels(): { header(index: number): string; cell(index: number): string } {
+  return {
+    header: (index) => t("editor.insert.tableHeader", { number: index }),
+    cell: (index) => t("editor.insert.tableCell", { number: index })
+  };
+}
+
+/** Asks through an Obsidian modal; Electron has no working browser prompt dialog. */
+function promptUser(
+  app: App,
+  message: string,
+  defaultValue: string,
+  allowEmpty = false
+): Promise<string | null> {
+  return promptText(app, { title: t("editor.prompt.title"), label: message, value: defaultValue, allowEmpty });
 }
 
 /**
@@ -134,7 +150,7 @@ function listToTable(value: string): string {
 
   if (rows.length === 0) return value;
   return [
-    "| 항목 |",
+    `| ${t("editor.insert.listHeader")} |`,
     "| --- |",
     ...rows.map((line) => `| ${line.replace(/\|/g, "\\|")} |`)
   ].join("\n");
@@ -183,8 +199,8 @@ function escapeRegExp(value: string): string {
 }
 
 function insertCallout(editor: Editor, type: "note" | "warning"): void {
-  const block = `> [!${type}] ${type === "warning" ? "주의" : "메모"}
-> 내용을 입력하세요
+  const block = `> [!${type}] ${type === "warning" ? t("editor.insert.calloutWarning") : t("editor.insert.calloutNote")}
+> ${t("editor.insert.calloutBody")}
 `;
   editor.replaceRange(block, editor.getCursor());
 }
@@ -202,9 +218,10 @@ export function applyFontColorValue(editor: Editor, color: string): void {
   );
 }
 
-function applyFontColor(editor: Editor): void {
-  const color = promptUser(
-    "글자색을 입력하세요 (예: #1a73e8, red)",
+async function applyFontColor(editor: Editor, app: App): Promise<void> {
+  const color = await promptUser(
+    app,
+    t("editor.prompt.fontColor", { example: "#1a73e8, red" }),
     "#1a73e8"
   );
   if (color) applyFontColorValue(editor, color);
@@ -226,9 +243,10 @@ export function applyBackgroundColorValue(
   );
 }
 
-function applyBackgroundColor(editor: Editor): void {
-  const color = promptUser(
-    "배경색을 입력하세요 (예: #fff59d, yellow)",
+async function applyBackgroundColor(editor: Editor, app: App): Promise<void> {
+  const color = await promptUser(
+    app,
+    t("editor.prompt.backgroundColor", { example: "#fff59d, yellow" }),
     "#fff59d"
   );
   if (color) applyBackgroundColorValue(editor, color);
@@ -257,73 +275,74 @@ function addEditorCommand(
   plugin: Plugin,
   id: string,
   name: string,
-  run: (editor: Editor) => void
+  run: (editor: Editor, app: App) => void | Promise<void>
 ): void {
-  plugin.addCommand({ id, name, editorCallback: run });
+  plugin.addCommand({
+    id,
+    name,
+    editorCallback: (editor) => {
+      void Promise.resolve(run(editor, plugin.app)).catch((error: unknown) => {
+        new Notice(error instanceof Error ? error.message : String(error));
+      });
+    }
+  });
 }
 
 /** Re-registers every public 2.4.2 editor command without loading the legacy bundle. */
 export function registerEditorCompatibilityCommands(plugin: Plugin): void {
-  addEditorCommand(plugin, "clear-formatting", "서식 지우기", (editor) => {
+  addEditorCommand(plugin, "clear-formatting", t("editor.command.clearFormatting"), (editor) => {
     transformSelectionOrCurrentLine(editor, clearFormatting);
   });
-  addEditorCommand(plugin, "toggle-underline", "밑줄", (editor) => {
-    toggleWrapper(editor, "<u>", "</u>", "밑줄 텍스트");
+  addEditorCommand(plugin, "toggle-underline", t("editor.command.toggleUnderline"), (editor) => {
+    toggleWrapper(editor, "<u>", "</u>", t("editor.insert.underline"));
   });
-  addEditorCommand(plugin, "toggle-inline-math", "인라인 수식", (editor) => {
+  addEditorCommand(plugin, "toggle-inline-math", t("editor.command.toggleInlineMath"), (editor) => {
     toggleWrapper(editor, "$", "$", "x+y");
   });
-  addEditorCommand(plugin, "superscript", "위 첨자", (editor) => {
-    toggleWrapper(editor, "<sup>", "</sup>", "위첨자");
+  addEditorCommand(plugin, "superscript", t("editor.command.superscript"), (editor) => {
+    toggleWrapper(editor, "<sup>", "</sup>", t("editor.insert.superscript"));
   });
-  addEditorCommand(plugin, "subscript", "아래 첨자", (editor) => {
-    toggleWrapper(editor, "<sub>", "</sub>", "아래첨자");
+  addEditorCommand(plugin, "subscript", t("editor.command.subscript"), (editor) => {
+    toggleWrapper(editor, "<sub>", "</sub>", t("editor.insert.subscript"));
   });
 
-  addEditorCommand(plugin, "insert-link", "링크 삽입", (editor) => {
+  addEditorCommand(plugin, "insert-link", t("editor.command.insertLink"), (editor) => {
     const selected = editor.getSelection();
     if (selected.length > 0) {
       editor.replaceSelection(`[${selected}](https://)`);
       return;
     }
     const cursor = editor.getCursor();
-    editor.replaceRange("[링크 텍스트](https://)", cursor);
+    const linkText = t("editor.insert.linkText");
+    editor.replaceRange(`[${linkText}](https://)`, cursor);
     editor.setSelection(
       { line: cursor.line, ch: cursor.ch + 1 },
-      { line: cursor.line, ch: cursor.ch + 6 }
+      { line: cursor.line, ch: cursor.ch + 1 + linkText.length }
     );
   });
-  addEditorCommand(plugin, "insert-wikilink", "위키링크 삽입", (editor) => {
+  addEditorCommand(plugin, "insert-wikilink", t("editor.command.insertWikilink"), (editor) => {
     const selected = editor.getSelection();
     if (selected.length > 0) {
       editor.replaceSelection(`[[${selected}]]`);
       return;
     }
-    editor.replaceRange("[[문서명]]", editor.getCursor());
+    editor.replaceRange(`[[${t("editor.insert.noteName")}]]`, editor.getCursor());
   });
-  addEditorCommand(plugin, "insert-embed", "임베드 삽입", (editor) => {
+  addEditorCommand(plugin, "insert-embed", t("editor.command.insertEmbed"), (editor) => {
     const selected = editor.getSelection();
     if (selected.length > 0) {
       editor.replaceSelection(`![[${selected}]]`);
       return;
     }
-    editor.replaceRange("![[첨부파일]]", editor.getCursor());
+    editor.replaceRange(`![[${t("editor.insert.attachment")}]]`, editor.getCursor());
   });
-  addEditorCommand(plugin, "insert-table", "표 삽입", (editor) => {
-    const table = [
-      "",
-      "| 제목 1 | 제목 2 | 제목 3 |",
-      "|--------|--------|--------|",
-      "| 내용 1 | 내용 2 | 내용 3 |",
-      "| 내용 4 | 내용 5 | 내용 6 |",
-      ""
-    ].join("\n");
-    editor.replaceRange(table, editor.getCursor());
+  addEditorCommand(plugin, "insert-table", t("editor.command.insertTable"), (editor) => {
+    editor.replaceRange(markdownTable(3, 3, tableLabels()), editor.getCursor());
   });
-  addEditorCommand(plugin, "insert-hr", "수평선 삽입", (editor) => {
+  addEditorCommand(plugin, "insert-hr", t("editor.command.insertHr"), (editor) => {
     editor.replaceRange("\n---\n", editor.getCursor());
   });
-  addEditorCommand(plugin, "insert-codeblock", "코드블록 삽입", (editor) => {
+  addEditorCommand(plugin, "insert-codeblock", t("editor.command.insertCodeBlock"), (editor) => {
     const selected = editor.getSelection();
     if (selected.length > 0) {
       editor.replaceSelection(`\`\`\`\n${selected}\n\`\`\``);
@@ -333,7 +352,7 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
     editor.replaceRange("```\n\n```", cursor);
     editor.setCursor({ line: cursor.line + 1, ch: 0 });
   });
-  addEditorCommand(plugin, "insert-mathblock", "수식 블록 삽입", (editor) => {
+  addEditorCommand(plugin, "insert-mathblock", t("editor.command.insertMathBlock"), (editor) => {
     const selected = editor.getSelection();
     if (selected.length > 0) {
       editor.replaceSelection(`$$\n${selected}\n$$`);
@@ -343,7 +362,7 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
     editor.replaceRange("$$\n\n$$", cursor);
     editor.setCursor({ line: cursor.line + 1, ch: 0 });
   });
-  addEditorCommand(plugin, "toggle-blockquote", "인용문 토글", (editor) => {
+  addEditorCommand(plugin, "toggle-blockquote", t("editor.command.toggleBlockquote"), (editor) => {
     transformSelectionOrCurrentLine(editor, (value) =>
       value
         .split("\n")
@@ -357,35 +376,35 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
         .join("\n")
     );
   });
-  addEditorCommand(plugin, "insert-callout-note", "콜아웃 삽입 (노트)", (editor) => {
+  addEditorCommand(plugin, "insert-callout-note", t("editor.command.insertCalloutNote"), (editor) => {
     insertCallout(editor, "note");
   });
-  addEditorCommand(plugin, "insert-callout-warning", "콜아웃 삽입 (주의)", (editor) => {
+  addEditorCommand(plugin, "insert-callout-warning", t("editor.command.insertCalloutWarning"), (editor) => {
     insertCallout(editor, "warning");
   });
 
-  addEditorCommand(plugin, "align-left", "왼쪽 정렬", (editor) => setAlignment(editor, "left"));
-  addEditorCommand(plugin, "align-center", "가운데 정렬", (editor) => setAlignment(editor, "center"));
-  addEditorCommand(plugin, "align-right", "오른쪽 정렬", (editor) => setAlignment(editor, "right"));
-  addEditorCommand(plugin, "align-justify", "양쪽 맞춤", (editor) => setAlignment(editor, "justify"));
-  addEditorCommand(plugin, "change-font-color", "글자색 변경", applyFontColor);
-  addEditorCommand(plugin, "change-background-color", "배경색 변경", applyBackgroundColor);
-  addEditorCommand(plugin, "cycle-list-checklist", "목록/체크리스트 순환", cycleChecklist);
+  addEditorCommand(plugin, "align-left", t("editor.command.alignLeft"), (editor) => setAlignment(editor, "left"));
+  addEditorCommand(plugin, "align-center", t("editor.command.alignCenter"), (editor) => setAlignment(editor, "center"));
+  addEditorCommand(plugin, "align-right", t("editor.command.alignRight"), (editor) => setAlignment(editor, "right"));
+  addEditorCommand(plugin, "align-justify", t("editor.command.alignJustify"), (editor) => setAlignment(editor, "justify"));
+  addEditorCommand(plugin, "change-font-color", t("editor.command.changeFontColor"), applyFontColor);
+  addEditorCommand(plugin, "change-background-color", t("editor.command.changeBackgroundColor"), applyBackgroundColor);
+  addEditorCommand(plugin, "cycle-list-checklist", t("editor.command.cycleListChecklist"), cycleChecklist);
 
-  addEditorCommand(plugin, "text-get-plain", "텍스트 도구: 순수 텍스트", (editor) => {
+  addEditorCommand(plugin, "text-get-plain", t("editor.command.textGetPlain"), (editor) => {
     transformSelectionOrDocument(editor, clearFormatting);
-    new Notice("서식을 제거해 순수 텍스트로 변환했습니다.");
+    new Notice(t("editor.notice.plainText"));
   });
-  addEditorCommand(plugin, "text-smart-symbols", "텍스트 도구: 전각/반각 변환", (editor) => {
+  addEditorCommand(plugin, "text-smart-symbols", t("editor.command.textSmartSymbols"), (editor) => {
     transformSelectionOrDocument(
       editor,
       (value) => /[\uFF01-\uFF5E\u3000]/.test(value) ? toHalfwidth(value) : toFullwidth(value)
     );
   });
-  addEditorCommand(plugin, "text-insert-blank-lines", "텍스트 도구: 빈 줄 삽입", (editor) => {
+  addEditorCommand(plugin, "text-insert-blank-lines", t("editor.command.textInsertBlankLines"), (editor) => {
     transformSelectionOrCurrentLine(editor, (value) => value.split("\n").join("\n\n"));
   });
-  addEditorCommand(plugin, "text-remove-blank-lines", "텍스트 도구: 빈 줄 제거", (editor) => {
+  addEditorCommand(plugin, "text-remove-blank-lines", t("editor.command.textRemoveBlankLines"), (editor) => {
     transformSelectionOrCurrentLine(editor, (value) =>
       value
         .split("\n")
@@ -393,8 +412,8 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
         .join("\n")
     );
   });
-  addEditorCommand(plugin, "text-split-lines", "텍스트 도구: 줄 분할", (editor) => {
-    const separator = promptUser("분할 기준 문자를 입력하세요", ",");
+  addEditorCommand(plugin, "text-split-lines", t("editor.command.textSplitLines"), async (editor, app) => {
+    const separator = await promptUser(app, t("editor.prompt.separator"), ",");
     if (!separator) return;
     transformSelectionOrCurrentLine(editor, (value) =>
       value
@@ -405,7 +424,7 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
         .join("\n")
     );
   });
-  addEditorCommand(plugin, "text-merge-lines", "텍스트 도구: 줄 합치기", (editor) => {
+  addEditorCommand(plugin, "text-merge-lines", t("editor.command.textMergeLines"), (editor) => {
     transformSelectionOrCurrentLine(editor, (value) =>
       value
         .split("\n")
@@ -414,7 +433,7 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
         .join(" ")
     );
   });
-  addEditorCommand(plugin, "text-dedupe-lines", "텍스트 도구: 중복 줄 제거", (editor) => {
+  addEditorCommand(plugin, "text-dedupe-lines", t("editor.command.textDedupeLines"), (editor) => {
     transformSelectionOrCurrentLine(editor, (value) => {
       const seen = new Set<string>();
       const unique: string[] = [];
@@ -426,9 +445,11 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
       return unique.join("\n");
     });
   });
-  addEditorCommand(plugin, "text-add-wrap", "텍스트 도구: 접두/접미 추가", (editor) => {
-    const prefix = promptUser("접두어", "") ?? "";
-    const suffix = promptUser("접미어", "") ?? "";
+  addEditorCommand(plugin, "text-add-wrap", t("editor.command.textAddWrap"), async (editor, app) => {
+    const prefix = await promptUser(app, t("editor.prompt.prefix"), "", true);
+    if (prefix === null) return;
+    const suffix = await promptUser(app, t("editor.prompt.suffix"), "", true);
+    if (suffix === null) return;
     transformSelectionOrCurrentLine(editor, (value) =>
       value
         .split("\n")
@@ -436,8 +457,9 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
         .join("\n")
     );
   });
-  addEditorCommand(plugin, "text-number-lines", "텍스트 도구: 줄 번호 매기기", (editor) => {
-    const requestedStart = promptUser("시작 번호", "1");
+  addEditorCommand(plugin, "text-number-lines", t("editor.command.textNumberLines"), async (editor, app) => {
+    const requestedStart = await promptUser(app, t("editor.prompt.startNumber"), "1");
+    if (requestedStart === null) return;
     const parsedStart = requestedStart ? Number(requestedStart) : 1;
     const start = Number.isFinite(parsedStart) ? parsedStart : 1;
     transformSelectionOrCurrentLine(editor, (value) =>
@@ -447,7 +469,7 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
         .join("\n")
     );
   });
-  addEditorCommand(plugin, "text-trim-line-ends", "텍스트 도구: 줄 끝 공백 제거", (editor) => {
+  addEditorCommand(plugin, "text-trim-line-ends", t("editor.command.textTrimLineEnds"), (editor) => {
     transformSelectionOrCurrentLine(editor, (value) =>
       value
         .split("\n")
@@ -455,21 +477,22 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
         .join("\n")
     );
   });
-  addEditorCommand(plugin, "text-compress-spaces", "텍스트 도구: 연속 공백 압축", (editor) => {
+  addEditorCommand(plugin, "text-compress-spaces", t("editor.command.textCompressSpaces"), (editor) => {
     transformSelectionOrCurrentLine(editor, (value) => value.replace(/[ \t]{2,}/g, " "));
   });
-  addEditorCommand(plugin, "text-remove-all-whitespace", "텍스트 도구: 모든 공백 제거", (editor) => {
+  addEditorCommand(plugin, "text-remove-all-whitespace", t("editor.command.textRemoveAllWhitespace"), (editor) => {
     transformSelectionOrCurrentLine(editor, (value) => value.replace(/\s+/g, ""));
   });
-  addEditorCommand(plugin, "text-list-to-table", "텍스트 도구: 목록→표", (editor) => {
+  addEditorCommand(plugin, "text-list-to-table", t("editor.command.textListToTable"), (editor) => {
     transformSelectionOrCurrentLine(editor, listToTable);
   });
-  addEditorCommand(plugin, "text-table-to-list", "텍스트 도구: 표→목록", (editor) => {
+  addEditorCommand(plugin, "text-table-to-list", t("editor.command.textTableToList"), (editor) => {
     transformSelectionOrCurrentLine(editor, tableToList);
   });
-  addEditorCommand(plugin, "text-extract-between", "텍스트 도구: 문자열 사이 추출", (editor) => {
-    const start = promptUser("시작 문자열", "");
-    const end = promptUser("끝 문자열", "");
+  addEditorCommand(plugin, "text-extract-between", t("editor.command.textExtractBetween"), async (editor, app) => {
+    const start = await promptUser(app, t("editor.prompt.startText"), "");
+    if (start === null) return;
+    const end = await promptUser(app, t("editor.prompt.endText"), "");
     if (!start || !end) return;
     transformSelectionOrCurrentLine(editor, (value) => {
       const expression = new RegExp(
@@ -480,24 +503,24 @@ export function registerEditorCompatibilityCommands(plugin: Plugin): void {
       let match: RegExpExecArray | null;
       while ((match = expression.exec(value)) !== null) matches.push(match[1]);
       if (matches.length === 0) {
-        new Notice("일치하는 구간을 찾지 못했습니다.");
+        new Notice(t("editor.notice.noMatch"));
         return value;
       }
       return matches.join("\n");
     });
   });
 
-  addEditorCommand(plugin, "insert-image", "이미지 삽입", (editor) => {
-    editor.replaceRange("![[이미지파일.png]]", editor.getCursor());
+  addEditorCommand(plugin, "insert-image", t("editor.command.insertImage"), (editor) => {
+    editor.replaceRange(`![[${t("editor.insert.imageFile")}.png]]`, editor.getCursor());
   });
-  addEditorCommand(plugin, "move-line-up", "줄 위로 이동", (editor) => {
+  addEditorCommand(plugin, "move-line-up", t("editor.command.moveLineUp"), (editor) => {
     moveCurrentLine(editor, -1);
   });
-  addEditorCommand(plugin, "move-line-down", "줄 아래로 이동", (editor) => {
+  addEditorCommand(plugin, "move-line-down", t("editor.command.moveLineDown"), (editor) => {
     moveCurrentLine(editor, 1);
   });
-  addEditorCommand(plugin, "duplicate-line", "줄 복제", duplicateCurrentLine);
-  addEditorCommand(plugin, "insert-callout", "콜아웃 삽입", (editor) => {
+  addEditorCommand(plugin, "duplicate-line", t("editor.command.duplicateLine"), duplicateCurrentLine);
+  addEditorCommand(plugin, "insert-callout", t("editor.command.insertCallout"), (editor) => {
     insertCallout(editor, "note");
   });
 }

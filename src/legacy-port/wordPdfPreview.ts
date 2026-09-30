@@ -4,6 +4,7 @@ import {
   type UserInitiatedAction,
   type UserProcessRunner
 } from "./userProcess";
+import { t } from "../i18n";
 
 export interface WordPdfPreviewRequest {
   platform: "windows" | "macos" | "linux";
@@ -40,7 +41,7 @@ export class WordPdfPreviewService {
   ): Promise<void> {
     assertUserInitiatedAction(action);
     if (!this.canUseExactPreview(request.platform)) {
-      throw new Error("Word exact preview is only available on Windows.");
+      throw new Error(t("docxPreview.windowsOnly"));
     }
 
     const conversion = this.queue

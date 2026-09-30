@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { keysForText, showsText } from "./helpers/uiText";
 
 test("PDF theme manager exposes immutable built-in and complete custom CRUD", async () => {
   const source = await readFile(
@@ -9,7 +10,10 @@ test("PDF theme manager exposes immutable built-in and complete custom CRUD", as
   );
 
   assert.match(source, /BUILTIN_EDITORIAL_PDF_THEME_ID/u);
-  assert.match(source, /selected\.builtIn \? "복제 후 편집" : "편집"/u);
+  const editLabels = /selected\.builtIn \? t\("([\w.]+)"\) : t\("([\w.]+)"\)/u.exec(source);
+  assert.ok(editLabels, "the edit button label must depend on selected.builtIn");
+  assert.ok(keysForText(/^복제 후 편집$/u).includes(editLabels[1] ?? ""));
+  assert.ok(keysForText(/^편집$/u).includes(editLabels[2] ?? ""));
   assert.match(source, /createEditorialPdfTheme\(/u);
   assert.match(source, /updateEditorialPdfTheme\(/u);
   assert.match(source, /duplicateEditorialPdfTheme\(/u);
@@ -26,36 +30,38 @@ test("PDF theme builder keeps a three-step novice flow and three overrides", asy
     "utf8"
   );
 
-  assert.match(source, /"1\. 키 컬러"/u);
-  assert.match(source, /"2\. 문구"/u);
-  assert.match(source, /"3\. 미리보기"/u);
+  assert.ok(showsText(source, /^1\. 키 컬러$/u));
+  assert.ok(showsText(source, /^2\. 문구$/u));
+  assert.ok(showsText(source, /^3\. 미리보기$/u));
   assert.match(source, /type: "color"/u);
   assert.match(source, /canonicalEditorialPdfHex\(this\.keyInput\)/u);
   assert.match(source, /token: "onKey"/u);
   assert.match(source, /token: "keyInk"/u);
   assert.match(source, /token: "accentLine"/u);
-  assert.match(source, /자동 추천 적용/u);
-  assert.match(source, /낮은 대비도 저장되며 실제 수치와 경고가 계속 표시됩니다/u);
-  assert.match(source, /왜 이 색인가요\?/u);
+  assert.ok(showsText(source, /자동 추천 적용/u));
+  assert.ok(showsText(source, /낮은 대비도 저장되며 실제 수치와 경고가 계속 표시됩니다/u));
+  assert.ok(showsText(source, /왜 이 색인가요\?/u));
   assert.match(source, /renderColorChoiceExplanation/u);
   assert.match(source, /editorialPdfContrastStatus\(resolved\)/u);
   assert.match(source, /palette\.keyTextSurface/u);
   assert.match(source, /--hanmark-pdf-preview-key-text-surface/u);
-  assert.match(
-    source,
-    /직접 지정하면 글자용 면 자동 보정이 꺼지고 원 키 컬러 위에 적용됩니다/u
+  assert.ok(
+    showsText(
+      source,
+      /직접 지정하면 글자용 면 자동 보정이 꺼지고 원 키 컬러 위에 적용됩니다/u
+    )
   );
-  assert.match(source, /PDF 전체의 WCAG 준수를 뜻하지 않습니다/u);
-  assert.match(source, /화면 안티앨리어싱/u);
-  assert.doesNotMatch(source, /자동 추천이 대부분 가장 안전합니다/u);
-  assert.doesNotMatch(source, /선택한 색 자체는 바꾸지 않습니다/u);
-  assert.doesNotMatch(source, /프로젝트 회의 기록/u);
+  assert.ok(showsText(source, /PDF 전체의 WCAG 준수를 뜻하지 않습니다/u));
+  assert.ok(showsText(source, /화면 안티앨리어싱/u));
+  assert.ok(!showsText(source, /자동 추천이 대부분 가장 안전합니다/u));
+  assert.ok(!showsText(source, /선택한 색 자체는 바꾸지 않습니다/u));
+  assert.ok(!showsText(source, /프로젝트 회의 기록/u));
   assert.match(source, /getActiveFile\(\)\?\.basename\.trim\(\)/u);
   assert.match(source, /previewFileTitle/u);
   assert.match(source, /hanmark-pdf-theme-preview-cover-title/u);
   assert.match(source, /editorialPdfContrastGuidance/u);
   assert.match(source, /formatEditorialPdfContrastRatio/u);
-  assert.match(source, /3:1은 큰 글자에만 적용되는 기준입니다/u);
+  assert.ok(showsText(source, /3:1은 큰 글자에만 적용되는 기준입니다/u));
   assert.match(source, /role: "status"/u);
   assert.match(source, /"aria-live": "polite"/u);
   assert.match(source, /const codeBlock = body\.createEl\("pre"\)/u);
@@ -118,7 +124,7 @@ test("settings and CSS expose keyboard-visible PDF theme management", async () =
   const css = await readFile("styles.css", "utf8");
 
   assert.match(manager, /hanmark-pdf-theme-workspace-modal/u);
-  assert.match(settings, /PDF 테마 관리/u);
+  assert.ok(showsText(settings, /PDF 테마 관리/u));
   assert.match(settings, /openEditorialPdfThemeManager/u);
   assert.match(
     css,

@@ -8,6 +8,7 @@ import {
   normalizeImportedImageDestination,
   normalizeImportedImageFolder
 } from "../src/legacy-port/settings";
+import { showsText } from "./helpers/uiText";
 
 test("settings migrate to version 9 with safe export defaults", () => {
   const settings = normalizeHanmarkSettings({
@@ -15,7 +16,7 @@ test("settings migrate to version 9 with safe export defaults", () => {
     unrelatedFutureSetting: "preserved"
   });
 
-  assert.equal(settings.settingsVersion, 11);
+  assert.equal(settings.settingsVersion, 12);
   assert.equal(settings.htmlExportTheme, "achmage-editorial");
   assert.equal(settings.importedImageDestination, "vault");
   assert.equal(settings.importedImageFolder, "");
@@ -66,17 +67,18 @@ test("HTML theme settings preserve Classic and reject unknown stored values", ()
 test("settings UI exposes clear Achmage Editorial and Classic choices", async () => {
   const source = await readFile("src/ui/HanmarkSettingTab.ts", "utf8");
 
-  assert.match(source, /HTML 내보내기/u);
-  assert.match(source, /Achmage Editorial \(권장\)/u);
-  assert.match(source, /Classic \(기존 스타일\)/u);
-  assert.match(
-    source,
-    /CMDS Eagle 현재 클라우드 \(R2 폴백 가능\)/u
-  );
-  assert.match(source, /가져올 때마다 묻기/u);
-  assert.match(source, /로컬 이미지 폴더/u);
-  assert.match(source, /Obsidian의 첨부 파일 위치 설정/u);
-  assert.match(source, /API 키는 필요할 때 묻고 인증 성공 뒤 세션 메모리에만/u);
+  for (const text of [
+    /HTML 내보내기/u,
+    /Achmage Editorial \(권장\)/u,
+    /Classic \(기존 스타일\)/u,
+    /CMDS Eagle 현재 클라우드 \(R2 폴백 가능\)/u,
+    /가져올 때마다 묻기/u,
+    /로컬 이미지 폴더/u,
+    /Obsidian의 첨부 파일 위치 설정/u,
+    /API 키는 필요할 때 묻고 인증 성공 뒤 세션 메모리에만/u
+  ]) {
+    assert.ok(showsText(source, text), `settings tab should show ${text.source}`);
+  }
   assert.doesNotMatch(source, /innerHTML/u);
 });
 

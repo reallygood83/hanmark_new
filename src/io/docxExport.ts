@@ -6,6 +6,7 @@ import {
   type DataAdapter
 } from "obsidian";
 import { adaptMarkdownForKordoc } from "./markdownAdapter";
+import { t, type LanguagePreference } from "../i18n";
 import { extractEditableBodyStrict } from "./frontmatter";
 import type { FileGateway, SavedFileResult } from "./fileGateway";
 import { safeSuggestedName, splitFilename } from "./fileGateway";
@@ -43,6 +44,10 @@ export interface DocxExportServiceOptions {
   fileGateway: FileGateway;
   templateStore: WordTemplateStore;
   getPandocPath: () => string;
+  /** Language of labels written into the document ("auto" reads the note). */
+  getOutputLanguage?: () => LanguagePreference;
+  /** Note assembly and other shared export preparation (see exportPreparation.ts). */
+  prepareMarkdown?: (body: string, sourcePath?: string) => Promise<string>;
   pandocService?: PandocDocxService;
   wordPdfPreviewService?: WordPdfPreviewService;
 }
@@ -170,6 +175,8 @@ export class DocxExportService {
   private readonly fileGateway: FileGateway;
   private readonly templateStore: WordTemplateStore;
   private readonly getPandocPath: () => string;
+  private readonly getOutputLanguage: () => LanguagePreference;
+  private readonly prepareMarkdown: (body: string, sourcePath?: string) => Promise<string>;
   private readonly pandocService: PandocDocxService;
   private readonly wordPdfPreviewService: WordPdfPreviewService;
 
@@ -179,6 +186,8 @@ export class DocxExportService {
     this.fileGateway = options.fileGateway;
     this.templateStore = options.templateStore;
     this.getPandocPath = options.getPandocPath;
+    this.getOutputLanguage = options.getOutputLanguage ?? (() => "auto");
+    this.prepareMarkdown = options.prepareMarkdown ?? ((body) => Promise.resolve(body));
     this.pandocService = options.pandocService ?? new PandocDocxService();
     this.wordPdfPreviewService =
       options.wordPdfPreviewService ?? new WordPdfPreviewService();
@@ -258,11 +267,10 @@ export class DocxExportService {
       // Pandoc does not understand Obsidian wiki embeds or callout markers.
       // Reuse the conservative Markdown adapter so local images, tasks and
       // links keep the same meaning as the HWPX path.
+      const body = await this.prepareMarkdown(extractEditableBodyStrict(source.markdown), source.sourcePath);
       await adapter.write(
         markdownPath,
-        adaptMarkdownForKordoc(
-          extractEditableBodyStrict(source.markdown)
-        ).markdown
+        adaptMarkdownForKordoc(body, { outputLanguage: this.getOutputLanguage() }).markdown
       );
       await this.pandocService.convertUserInitiated(
         {
@@ -276,7 +284,7 @@ export class DocxExportService {
         action
       );
       if (!(await adapter.exists(outputPath))) {
-        throw new Error("Pandoc did not produce a DOCX file.");
+        throw new Error(t("docx.error.noOutput"));
       }
       const bytes = new Uint8Array(await adapter.readBinary(outputPath));
       return {
@@ -313,7 +321,7 @@ export class DocxExportService {
     action: UserInitiatedAction
   ): Promise<ExactDocxPreview> {
     if (!Platform.isWin || !Platform.isDesktopApp) {
-      throw new Error("Word exact preview is only available on Windows desktop.");
+      throw new Error(t("docxPreview.windowsOnly"));
     }
     const adapter = nativeAdapter(this.app);
     if (!(await adapter.exists(this.wordPdfScriptPath))) {

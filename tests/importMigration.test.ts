@@ -7,6 +7,7 @@ import {
   hasHanmarkSourceMetadata,
   stripHanmarkSourceMetadata
 } from "../src/io/legacyImportMigration";
+import { showsText } from "./helpers/uiText";
 
 const GENERATED_CALLOUT = [
   "> [!hwp-source] 원본: C:/documents/paper.hwpx",
@@ -164,7 +165,7 @@ describe("legacy imported-note migration", () => {
 });
 
 it("new Kordoc imports write only parsed Markdown and attachment links", async () => {
-  const source = await readFile("src/io/kordocImport.ts", "utf8");
+  const source = await readFile("src/io/importRunner.ts", "utf8");
   assert.match(
     source,
     /persistImportedImages\([\s\S]*?result\.markdown\.trim\(\),[\s\S]*?result\.images/u
@@ -175,7 +176,7 @@ it("new Kordoc imports write only parsed Markdown and attachment links", async (
   );
   assert.match(
     source,
-    /\(result\.warnings\?\.length \?\? 0\) \+[\s\S]*?persisted\.warnings\.length \+[\s\S]*?cloud\.warnings\.length/u
+    /\.\.\.\(result\.warnings \?\? \[\]\)[\s\S]*?\.\.\.persisted\.warnings[\s\S]*?\.\.\.cloud\.warnings/u
   );
   assert.doesNotMatch(
     source,
@@ -193,10 +194,7 @@ it("public export types no longer expose source-patch", async () => {
   assert.match(source, /"gongmun-hwpx"/u);
   assert.match(source, /type HwpxExportVariant =\s*\| "quick"\s*\| "gongmun"/u);
   assert.match(main, /id:\s*"patch-hwp-experimental"[\s\S]*?checkCallback/u);
-  assert.match(
-    main,
-    /고급·레거시: 원본 형식 보존 수정본 만들기/u
-  );
+  assert.ok(showsText(main, /고급·레거시: 원본 형식 보존 수정본 만들기/u));
   assert.match(
     main,
     /id:\s*"create-clean-markdown-copy"[\s\S]*?createCleanLegacyMarkdownCopy/u

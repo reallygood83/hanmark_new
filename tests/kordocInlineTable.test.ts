@@ -46,7 +46,7 @@ function blockShape(block: any): string {
   return `${block.type}(${block.text})`;
 }
 
-describe("Kordoc 4.2.5 inline-table parsing regression", () => {
+describe("Kordoc inline-table parsing regression (fixed in 4.2.5, kept under the pinned engine)", () => {
   it("keeps inline date tables and their labels on one flattened line", async () => {
     const cell = await parseMixedCell(
       flowTable(200, "0000-00-00") + `<hp:t> 부터 </hp:t>` +

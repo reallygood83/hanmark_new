@@ -1,4 +1,5 @@
 import type { App, TFile } from "obsidian";
+import { t } from "../i18n";
 
 /** kordoc-supported source formats we record in the note's frontmatter. */
 export type HwpSourceFormat =
@@ -133,9 +134,7 @@ export function stripFrontmatter(md: string): string {
 export function stripFrontmatterStrict(md: string): string {
   const result = leadingFrontmatter(md);
   if (result.hasOpeningDelimiter && result.bodyOffset < 0) {
-    throw new Error(
-      "문서 맨 앞의 YAML 속성 영역이 닫히지 않았습니다. 닫는 구분선(---)을 추가한 뒤 다시 내보내세요."
-    );
+    throw new Error(t("frontmatter.unclosed"));
   }
   return md.slice(result.bodyOffset);
 }
@@ -191,4 +190,19 @@ export function extractEditableBody(raw: string): string {
  */
 export function extractEditableBodyStrict(raw: string): string {
   return stripSourceCallout(stripFrontmatterStrict(raw)).replace(/^\s+/, "");
+}
+
+/** Editor line (0-based) where the exported body starts: after frontmatter and the source callout. */
+export function bodyLineOffset(raw: string): number {
+  const lines = raw.replace(/\r\n?/gu, "\n").split("\n");
+  let start = 0;
+  if (lines[0]?.trim() === "---") {
+    const close = lines.findIndex((line, index) => index > 0 && (line.trim() === "---" || line.trim() === "..."));
+    if (close > 0) start = close + 1;
+  }
+  const bodyLines = extractEditableBody(lines.join("\n")).split("\n");
+  const firstIndex = bodyLines.findIndex((line) => line.trim());
+  if (firstIndex < 0) return start;
+  const rawIndex = lines.findIndex((line, index) => index >= start && line === bodyLines[firstIndex]);
+  return rawIndex >= 0 ? Math.max(0, rawIndex - firstIndex) : start;
 }

@@ -20,6 +20,12 @@ import {
   hardenSetImmediateSource,
   injectKordocCfb,
   kordocSourceHardeningPlugin,
+  KORDOC_HARDENING_MANIFEST,
+  assertKordocHardeningTally,
+  assertKordocManifestVersion,
+  emptyKordocHardeningTally,
+  findMatchingBrace,
+  removeKordocComBranches,
 } from "../esbuild.config.mjs";
 
 function makeMinimalPdf(text: string): ArrayBuffer {
@@ -277,53 +283,62 @@ test("PDF.js clipboard hardening fails closed when the pinned source shape chang
   );
 });
 
-test("Kordoc 4.2.5 CFB runtime requires are converted to a bundled import", async () => {
+async function kordocLibraryGraph(): Promise<string[]> {
   const directory = "node_modules/kordoc/dist";
-  const files = (await readdir(directory))
-    .filter((name) => /\.(?:c?js|mjs)$/u.test(name))
-    .map((name) => join(directory, name));
+  const seen = new Set<string>();
+  const queue = ["index.js"];
+  while (queue.length > 0) {
+    const name = queue.shift() ?? "";
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const source = await readFile(join(directory, name), "utf8");
+    for (const match of source.matchAll(/from "\.\/([^"]+)"|import\("\.\/([^"]+)"\)/gu)) {
+      const next = match[1] ?? match[2];
+      if (next && !seen.has(next)) queue.push(next);
+    }
+  }
+  return [...seen].map((name) => join(directory, name));
+}
 
+test("the Kordoc hardening manifest matches the installed engine", async () => {
+  const installed = JSON.parse(
+    await readFile("node_modules/kordoc/package.json", "utf8"),
+  ) as { version: string };
+  assert.equal(installed.version, KORDOC_HARDENING_MANIFEST.version);
+  assert.doesNotThrow(() => assertKordocManifestVersion(installed.version));
+  assert.throws(
+    () => assertKordocManifestVersion("0.0.0"),
+    /does not match the reviewed hardening manifest/u,
+  );
+});
+
+test("Kordoc CFB runtime requires are converted to a bundled import", async () => {
   let replacements = 0;
-  for (const file of files) {
+  for (const file of await kordocLibraryGraph()) {
     const source = await readFile(file, "utf8");
     const transformed = injectKordocCfb(source);
     replacements += transformed.replacements;
     if (transformed.replacements > 0) {
-      assert.match(
-        transformed.source,
-        /^import \* as __kordoc_cfb from "cfb";/u,
-      );
-      assert.doesNotMatch(
-        transformed.source,
-        /\brequire\d*\(\s*["']cfb["']\s*\)/u,
-      );
+      assert.match(transformed.source, /^import \* as __kordoc_cfb from "cfb";/u);
+      assert.doesNotMatch(transformed.source, /\brequire\d*\(\s*["']cfb["']\s*\)/u);
       assert.doesNotMatch(transformed.source, /\bcreateRequire\b/u);
     }
   }
-
-  assert.ok(
-    replacements >= 2,
-    `expected at least two CFB replacements, got ${replacements}`,
-  );
+  assert.equal(replacements, KORDOC_HARDENING_MANIFEST.cfbLoaders);
 });
 
-test("Kordoc 4.2.5 strips the unreachable Windows COM fallback exactly", async () => {
-  const directory = "node_modules/kordoc/dist";
-  const files = (await readdir(directory))
-    .filter((name) => /\.(?:js|mjs)$/u.test(name))
-    .map((name) => join(directory, name));
-
+test("Kordoc strips the unreachable Windows COM fallback exactly", async () => {
   let hardenedSources = 0;
-  for (const file of files) {
+  for (const file of await kordocLibraryGraph()) {
     const source = await readFile(file, "utf8");
     const transformed = hardenKordocComFallbackSource(source);
     if (transformed.helperReplacements === 0) {
+      assert.equal(transformed.comBranchReplacements, 0, file);
       continue;
     }
     hardenedSources += 1;
-    assert.equal(transformed.helperReplacements, 1, file);
-    assert.equal(transformed.encryptedHwpxBranchReplacements, 1, file);
-    assert.equal(transformed.distributionHwpBranchReplacements, 1, file);
+    assert.equal(transformed.helperReplacements, KORDOC_HARDENING_MANIFEST.comHelpers, file);
+    assert.equal(transformed.comBranchReplacements, KORDOC_HARDENING_MANIFEST.comBranches, file);
     assert.equal(
       transformed.source.match(/^\/\/ src\//gmu)?.length,
       (source.match(/^\/\/ src\//gmu)?.length ?? 0) - 1,
@@ -334,28 +349,55 @@ test("Kordoc 4.2.5 strips the unreachable Windows COM fallback exactly", async (
       /\b(?:execFileSync|isComFallbackAvailable|extractTextViaCom|comResultToParseResult)\b|["'](?:node:)?child_process["']|HWPFrame\.HwpObject/u,
       file,
     );
-    assert.match(
-      transformed.source,
-      /async function parseHwpxDocument\(buffer, options\)/u,
-      file,
-    );
+    assert.match(transformed.source, /async function parseHwpxDocument\(buffer, options\)/u, file);
     assert.match(
       transformed.source,
       /function isEncryptedHwpx\(manifestXml\) \{\r?\n  return manifestXml\.includes\("encryption-data"\);\r?\n\}/u,
       `${file} must preserve encrypted-package detection`,
     );
+    assert.match(transformed.source, /function parseHwp5Document\(buffer, options\)/u, file);
     assert.match(
       transformed.source,
-      /function parseHwp5Document\(buffer, options\)/u,
-      file,
+      /await decryptHwpxInPlace\(zip, manifestXml, options\.password\)/u,
+      `${file} must keep password decryption`,
     );
   }
+  assert.equal(hardenedSources, 1, "exactly one library module carries the COM fallback");
+});
 
-  assert.equal(
-    hardenedSources,
-    2,
-    `expected both pinned Kordoc distributions to contain the COM fallback, got ${hardenedSources}`,
+test("COM branch removal matches braces across strings, templates, and comments", () => {
+  const source = [
+    "function run(options) {",
+    "  if (ready() && isComFallbackAvailable() && options?.filePath) {",
+    '    const note = "} not a brace";',
+    "    const tpl = `${{ a: 1 }.a} }`;",
+    "    // } comment brace",
+    "    return 1;",
+    "  }",
+    "  return 2;",
+    "}",
+  ].join("\n");
+  const removed = removeKordocComBranches(source);
+  assert.equal(removed.replacements, 1);
+  assert.equal(removed.source, ["function run(options) {", "  return 2;", "}"].join("\n"));
+  assert.equal(findMatchingBrace("{ '{' }", 0), 6);
+  assert.throws(
+    () => removeKordocComBranches("x = y; if (isComFallbackAvailable() && options?.filePath) { z(); } w();"),
+    /standalone if statement|shares its closing line/u,
   );
+});
+
+test("the hardening tally rejects any drift from the manifest", () => {
+  const tally = emptyKordocHardeningTally();
+  assert.doesNotThrow(() => assertKordocHardeningTally(tally), "no Kordoc files loaded");
+  tally.loadedFiles = 3;
+  tally.cfbLoaders = KORDOC_HARDENING_MANIFEST.cfbLoaders;
+  tally.comHelpers = KORDOC_HARDENING_MANIFEST.comHelpers;
+  tally.comBranches = KORDOC_HARDENING_MANIFEST.comBranches;
+  tally.pdfAssetLookups = KORDOC_HARDENING_MANIFEST.pdfAssetLookups;
+  assert.doesNotThrow(() => assertKordocHardeningTally(tally));
+  tally.comBranches -= 1;
+  assert.throws(() => assertKordocHardeningTally(tally), /differ from the manifest/u);
 });
 
 test("Kordoc optional native loaders are replaced without removing document parsers", async () => {
@@ -384,15 +426,18 @@ test("Kordoc optional native loaders are replaced without removing document pars
 });
 
 test("Kordoc PDF parser keeps byte parsing without createRequire asset lookup", async () => {
-  const parser = await readFile(
-    "node_modules/kordoc/dist/parser-FDOR727T.js",
-    "utf8",
-  );
+  const parsers: string[] = [];
+  for (const file of await kordocLibraryGraph()) {
+    const source = await readFile(file, "utf8");
+    if (source.includes("var pdfjsAssets = {}")) parsers.push(file);
+  }
+  assert.equal(parsers.length, KORDOC_HARDENING_MANIFEST.pdfAssetLookups);
+  const parser = await readFile(parsers[0] ?? "", "utf8");
   const transformed = hardenKordocPdfParserSource(parser);
 
   assert.equal(transformed.assetLookupReplacements, 1);
   assert.equal(transformed.createRequireImportReplacements, 1);
-  assert.match(transformed.source, /data: new Uint8Array\(buffer\)/u);
+  assert.match(transformed.source, /data: new Uint8Array\(buffer\.slice\(0\)\)/u);
   assert.doesNotMatch(transformed.source, /\bcreateRequire\b/u);
   assert.doesNotMatch(transformed.source, /pdfjs-dist\/package\.json/u);
 });

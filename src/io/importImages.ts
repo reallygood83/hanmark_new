@@ -3,6 +3,7 @@ import type { ExtractedImage } from "kordoc";
 import { rewriteImportedImageReference } from "./imageLinks";
 import { normalizeImportedImageFolder } from "../legacy-port/settings";
 import { errorMessage } from "../utils/errors";
+import { t } from "../i18n";
 
 export interface PersistImagesResult {
   markdown: string;
@@ -154,9 +155,7 @@ export async function persistImportedImages(
   const noteBase = notePath.split("/").pop()?.replace(/\.md$/i, "") || "imported";
   const localFolder = permittedLocalFolder(app, options.localFolder);
   if (options.localFolder && !localFolder) {
-    warnings.push(
-      "가져온 이미지 폴더가 Vault 설정 폴더와 겹쳐 Obsidian의 첨부 파일 위치 설정을 사용했습니다."
-    );
+    warnings.push(t("import.image.folderOverlapsConfig"));
   }
 
   for (const [index, image] of images.entries()) {
@@ -196,9 +195,7 @@ export async function persistImportedImages(
       // never become an upload candidate and could otherwise accumulate in the
       // plugin staging folder indefinitely.
       if (result.replacements === 0) {
-        warnings.push(
-          `본문 참조를 찾지 못해 이미지를 저장하지 않았습니다: ${image.filename}`
-        );
+        warnings.push(t("import.image.unreferenced", { file: image.filename }));
         continue;
       }
       await ensureParentFolders(app, attachmentPath);
@@ -217,7 +214,7 @@ export async function persistImportedImages(
         });
       }
     } catch (error: unknown) {
-      warnings.push(`이미지 저장 실패 (${image.filename}): ${errorMessage(error)}`);
+      warnings.push(t("import.image.saveFailed", { file: image.filename, detail: errorMessage(error) }));
     }
   }
 

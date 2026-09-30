@@ -1,6 +1,11 @@
+import { t, tKey, type MessageKey } from "../i18n";
+
 export const EDITORIAL_PDF_THEME_SCHEMA_VERSION = 1 as const;
 export const BUILTIN_EDITORIAL_PDF_THEME_ID = "builtin:achmage-hanmark" as const;
-export const BUILTIN_EDITORIAL_PDF_THEME_NAME = "Achmage HanMark 기본";
+// Custom theme names are kept unique against this fixed name (and it is written
+// into exported JSON), so it never changes with the interface language. The
+// interface shows the built-in theme through editorialPdfThemeDisplayName().
+export const BUILTIN_EDITORIAL_PDF_THEME_NAME = "Achmage HanMark 기본"; // i18n-data: stored name used for name matching
 export const EDITORIAL_PDF_THEME_EXCHANGE_FORMAT =
   "hanmark-editorial-pdf-theme" as const;
 export const EDITORIAL_PDF_THEME_MAX_JSON_BYTES = 256 * 1024;
@@ -171,7 +176,6 @@ const MINIMUM_TEXT_CONTRAST = 4.5;
 const MINIMUM_ADJUSTMENT_ENTRY_CONTRAST = 3;
 const MAXIMUM_TEXT_SURFACE_DELTA_E_OK = 0.02;
 const EMPTY_TIMESTAMP = "1970-01-01T00:00:00.000Z";
-const DEFAULT_CUSTOM_THEME_NAME = "사용자 PDF 테마";
 const LEGACY_BUILTIN_FOOTER_LEFT = "ACHMAGE / HANMARK PDF EDITION";
 const CUSTOM_THEME_ID = /^custom:[0-9A-Za-z][0-9A-Za-z._-]{0,127}$/u;
 const HEX = /^#[0-9A-F]{6}$/u;
@@ -318,7 +322,11 @@ function normalizeEditorialPdfFooter(value: unknown, fallback: string): string {
     .join("");
 }
 
-function normalizeThemeName(value: unknown, fallback = DEFAULT_CUSTOM_THEME_NAME): string {
+function defaultCustomThemeName(): string {
+  return t("pdfTheme.defaultName");
+}
+
+function normalizeThemeName(value: unknown, fallback = defaultCustomThemeName()): string {
   const cleaned = normalizeEditorialPdfText(
     value,
     EDITORIAL_PDF_THEME_LIMITS.name,
@@ -515,6 +523,16 @@ export function builtInEditorialPdfThemeSnapshot(): EditorialPdfThemeSnapshot {
   };
 }
 
+/**
+ * Name shown in the interface. The built-in theme gets a localized label while
+ * its stored name (BUILTIN_EDITORIAL_PDF_THEME_NAME) stays fixed.
+ */
+export function editorialPdfThemeDisplayName(
+  snapshot: Readonly<Pick<EditorialPdfThemeSnapshot, "builtIn" | "name">>
+): string {
+  return snapshot.builtIn ? t("pdfTheme.builtinName") : snapshot.name;
+}
+
 function recordSnapshot(
   record: Readonly<EditorialPdfThemeRecordV1>
 ): EditorialPdfThemeSnapshot {
@@ -557,7 +575,7 @@ function nameWithSuffix(base: string, index: number): string {
   const available = EDITORIAL_PDF_THEME_LIMITS.name
     - editorialPdfGraphemeCount(suffix);
   const stem = graphemes(base).slice(0, available).join("").trimEnd();
-  return `${stem || DEFAULT_CUSTOM_THEME_NAME}${suffix}`;
+  return `${stem || defaultCustomThemeName()}${suffix}`;
 }
 
 function uniqueThemeName(requested: string, used: readonly string[]): string {
@@ -609,7 +627,7 @@ export function createEditorialPdfTheme(
   const library = mutationLibrary(libraryValue);
   const id = options.id ?? newCustomThemeId();
   if (!CUSTOM_THEME_ID.test(id) || library.customThemes[id]) {
-    throw new Error("사용할 수 없는 PDF 테마 ID입니다.");
+    throw new Error(t("pdfTheme.error.invalidId"));
   }
   const now = mutationTimestamp(options.now);
   const record: EditorialPdfThemeRecordV1 = {
@@ -631,7 +649,7 @@ export function updateEditorialPdfTheme(
 ): EditorialPdfThemeMutationResult {
   const library = mutationLibrary(libraryValue);
   const existing = library.customThemes[id];
-  if (!existing) throw new Error("선택한 PDF 테마를 찾을 수 없습니다.");
+  if (!existing) throw new Error(t("pdfTheme.error.notFound"));
   const record: EditorialPdfThemeRecordV1 = {
     ...existing,
     theme: normalizeEditorialPdfTheme(theme),
@@ -649,7 +667,7 @@ export function renameEditorialPdfTheme(
 ): EditorialPdfThemeMutationResult {
   const library = mutationLibrary(libraryValue);
   const existing = library.customThemes[id];
-  if (!existing) throw new Error("선택한 PDF 테마를 찾을 수 없습니다.");
+  if (!existing) throw new Error(t("pdfTheme.error.notFound"));
   const record: EditorialPdfThemeRecordV1 = {
     ...existing,
     name: availableEditorialPdfThemeName(library, requestedName, id),
@@ -671,10 +689,10 @@ export function duplicateEditorialPdfTheme(
     : library.customThemes[sourceId]
       ? recordSnapshot(library.customThemes[sourceId])
       : null;
-  if (!source) throw new Error("복제할 PDF 테마를 찾을 수 없습니다.");
+  if (!source) throw new Error(t("pdfTheme.error.duplicateSourceMissing"));
   return createEditorialPdfTheme(
     library,
-    requestedName ?? `${source.name} 복사본`,
+    requestedName ?? t("pdfTheme.copyName", { name: editorialPdfThemeDisplayName(source) }),
     source.theme,
     options
   );
@@ -704,7 +722,7 @@ export function setActiveEditorialPdfTheme(
     id !== BUILTIN_EDITORIAL_PDF_THEME_ID
     && !library.customThemes[id]
   ) {
-    throw new Error("선택한 PDF 테마를 찾을 수 없습니다.");
+    throw new Error(t("pdfTheme.error.notFound"));
   }
   library.activeId = id;
   return library;
@@ -732,7 +750,7 @@ function linearToSrgb(value: number): number {
 
 export function relativeLuminance(value: string): number {
   const hex = canonicalEditorialPdfHex(value);
-  if (!hex) throw new Error("명도를 계산할 색상은 #RRGGBB여야 합니다.");
+  if (!hex) throw new Error(t("pdfTheme.error.luminanceHex"));
   const rgb = parseHex(hex);
   return 0.2126 * srgbToLinear(rgb.red)
     + 0.7152 * srgbToLinear(rgb.green)
@@ -870,7 +888,7 @@ function automaticOnKey(keySurface: string): string {
     .filter(({ ratio }) => ratio >= MINIMUM_TEXT_CONTRAST)
     .sort((left, right) => right.ratio - left.ratio);
   if (aaCandidates[0]) return aaCandidates[0].candidate;
-  throw new Error("PDF 키 컬러의 안전한 글자색을 계산하지 못했습니다.");
+  throw new Error(t("pdfTheme.error.noSafeText"));
 }
 
 function oklabCoordinates(value: string): [number, number, number] {
@@ -932,7 +950,7 @@ export function resolveEditorialPdfOnKey(
   keyValue: unknown
 ): EditorialPdfOnKeyResolution {
   const key = canonicalEditorialPdfHex(keyValue);
-  if (!key) throw new Error("PDF 키 컬러는 #RRGGBB여야 합니다.");
+  if (!key) throw new Error(t("pdfTheme.error.keyHex"));
   const exactForeground = automaticOnKey(key);
   const exactRatio = contrastRatio(exactForeground, key);
   const exactEdgeSignal = Math.abs(
@@ -1006,15 +1024,15 @@ function diagnostic(
   };
 }
 
-const CONTRAST_LABELS: Readonly<Record<EditorialPdfOverrideToken, string>> = {
-  onKey: "키 배경 위 글자",
-  keyInk: "흰 종이 위 브랜드 글자",
-  accentLine: "상·하단 포인트 선"
+const CONTRAST_LABELS: Readonly<Record<EditorialPdfOverrideToken, MessageKey>> = {
+  onKey: "pdfTheme.role.onKey.name",
+  keyInk: "pdfTheme.role.keyInk.name",
+  accentLine: "pdfTheme.role.accentLine.name"
 };
 
 export function formatEditorialPdfContrastRatio(value: number): string {
   if (!Number.isFinite(value) || value < 0) {
-    throw new Error("PDF 대비 비율은 0 이상의 유한한 숫자여야 합니다.");
+    throw new Error(t("pdfTheme.error.invalidRatio"));
   }
   // A rounded 4.4999 must never be presented as the passing value 4.500.
   // Three decimals are enough for the UI while flooring preserves the side of
@@ -1025,7 +1043,12 @@ export function formatEditorialPdfContrastRatio(value: number): string {
 export function editorialPdfContrastDiagnosticText(
   value: Readonly<EditorialPdfContrastDiagnostic>
 ): string {
-  return `${CONTRAST_LABELS[value.token]} ${formatEditorialPdfContrastRatio(value.ratio)}:1 · ${editorialPdfContrastGuidance(value)} · ${value.manual ? "직접 지정" : "자동"}`;
+  return t("pdfTheme.diagnostic.text", {
+    label: tKey(CONTRAST_LABELS[value.token]),
+    ratio: formatEditorialPdfContrastRatio(value.ratio),
+    guidance: editorialPdfContrastGuidance(value),
+    source: value.manual ? t("pdfTheme.source.manual") : t("pdfTheme.source.automatic")
+  });
 }
 
 export function editorialPdfContrastStatus(
@@ -1037,45 +1060,53 @@ export function editorialPdfContrastStatus(
   const resolution = resolved.onKeyResolution;
   const ratio = `${formatEditorialPdfContrastRatio(resolution.ratio)}:1`;
   const foreground = resolution.foreground === PAPER
-    ? "흰 글자"
+    ? t("pdfTheme.status.whiteText")
     : resolution.foreground === BLACK
-      ? "검정 글자"
+      ? t("pdfTheme.status.blackText")
       : resolution.foreground === NEAR_BLACK
-        ? "어두운 글자"
-        : `${resolution.foreground} 글자`;
+        ? t("pdfTheme.status.darkText")
+        : t("pdfTheme.status.colorText", { color: resolution.foreground });
   let status: string;
   switch (resolution.strategy) {
     case "builtin":
-      status = `HanMark 2.5.5 기본 출력 보존 · ${ratio}`;
+      status = t("pdfTheme.status.builtin", { ratio });
       break;
     case "manual-exact":
-      status =
-        `직접 지정 · 원 키 컬러 사용 · ${ratio} · `
-        + (resolution.ratio >= MINIMUM_TEXT_CONTRAST
-          ? "일반 글자 기준 통과"
+      status = t("pdfTheme.status.manualExact", {
+        ratio,
+        result: resolution.ratio >= MINIMUM_TEXT_CONTRAST
+          ? t("pdfTheme.status.manualResult.normal")
           : resolution.ratio >= 3
-            ? "큰 글자 기준만 통과"
-            : "글자 대비 기준 미달");
+            ? t("pdfTheme.status.manualResult.large")
+            : t("pdfTheme.status.manualResult.fail")
+      });
       break;
     case "automatic-adjusted":
-      status =
-        `자동 가독성 보정 · ${foreground} · ${resolution.seed} → `
-        + `${resolution.surface} · ${ratio}`;
+      status = t("pdfTheme.status.automaticAdjusted", {
+        foreground,
+        seed: resolution.seed,
+        surface: resolution.surface,
+        ratio
+      });
       break;
     case "automatic-wcag-fallback":
-      status =
-        `WCAG 일반 글자 기준 우선 · ${foreground} · `
-        + `키 컬러 그대로 · ${ratio}`;
+      status = t("pdfTheme.status.automaticFallback", { foreground, ratio });
       break;
     case "automatic-exact":
-      status = `자동 추천 · ${foreground} · 키 컬러 그대로 · ${ratio}`;
+      status = t("pdfTheme.status.automaticExact", { foreground, ratio });
       break;
   }
-  return failing.length ? `${status} · 대비 경고 ${failing.length}개` : status;
+  return failing.length
+    ? t("pdfTheme.status.withWarnings", { status, count: failing.length })
+    : status;
 }
 
 function warningForDiagnostic(value: EditorialPdfContrastDiagnostic): string {
-  return `${CONTRAST_LABELS[value.token]} 대비 경고: ${formatEditorialPdfContrastRatio(value.ratio)}:1 (${editorialPdfContrastGuidance(value)})`;
+  return t("pdfTheme.warning", {
+    label: tKey(CONTRAST_LABELS[value.token]),
+    ratio: formatEditorialPdfContrastRatio(value.ratio),
+    guidance: editorialPdfContrastGuidance(value)
+  });
 }
 
 export function editorialPdfContrastGuidance(
@@ -1083,23 +1114,23 @@ export function editorialPdfContrastGuidance(
 ): string {
   if (value.token === "accentLine") {
     return value.ratio >= 3
-      ? "선·그래픽 최소 기준 통과"
-      : "선·그래픽 3:1 기준 미달";
+      ? t("pdfTheme.guidance.linePass")
+      : t("pdfTheme.guidance.lineFail");
   }
-  if (value.ratio >= 7) return "높은 대비 · 7:1 이상";
+  if (value.ratio >= 7) return t("pdfTheme.guidance.high");
   if (value.ratio >= 4.5) {
     return value.minimum > 4.5
-      ? `일반 글자 4.5:1은 통과 · HanMark 목표 ${value.minimum}:1 미달`
-      : "일반 글자 최소 기준 통과 · 높은 대비는 아님";
+      ? t("pdfTheme.guidance.normalBelowTarget", { target: value.minimum })
+      : t("pdfTheme.guidance.normalMinimum");
   }
   if (value.ratio >= 3) {
     return value.minimum > 4.5
-      ? `큰 글자 3:1만 통과 · 일반 글자 4.5:1 및 HanMark 목표 ${value.minimum}:1 미달`
-      : "큰 글자 3:1만 통과 · 일반 글자 4.5:1 미달";
+      ? t("pdfTheme.guidance.largeBelowTarget", { target: value.minimum })
+      : t("pdfTheme.guidance.largeOnly");
   }
   return value.minimum > 4.5
-    ? `낮은 대비 · 일반 글자 4.5:1 및 HanMark 목표 ${value.minimum}:1 미달`
-    : `낮은 대비 · 목표 ${value.minimum}:1 미달`;
+    ? t("pdfTheme.guidance.lowBelowTarget", { target: value.minimum })
+    : t("pdfTheme.guidance.low", { target: value.minimum });
 }
 
 function assertAutomaticPaletteInvariants(
@@ -1123,7 +1154,7 @@ function assertAutomaticPaletteInvariants(
     contrastRatio(palette.bodyInk, palette.alternate) >= 7
   ];
   if (checks.some((passes) => !passes)) {
-    throw new Error("PDF 테마 자동 팔레트가 대비 안전 규칙을 만족하지 못했습니다.");
+    throw new Error(t("pdfTheme.error.paletteUnsafe"));
   }
 }
 
@@ -1235,13 +1266,13 @@ function assertJsonString(
   maximum: number,
   options: { empty?: boolean } = {}
 ): string {
-  if (typeof value !== "string") throw new Error(`${label}이(가) 문자열이 아닙니다.`);
+  if (typeof value !== "string") throw new Error(t("pdfTheme.json.notText", { field: label }));
   const cleaned = replaceUnsafeTextCharacters(value);
   if (editorialPdfGraphemeCount(cleaned) > maximum) {
-    throw new Error(`${label}이(가) ${maximum}글자보다 깁니다.`);
+    throw new Error(t("pdfTheme.json.tooLong", { field: label, count: maximum }));
   }
   if (options.empty === false && !cleaned.trim()) {
-    throw new Error(`${label}을(를) 비울 수 없습니다.`);
+    throw new Error(t("pdfTheme.json.empty", { field: label }));
   }
   return cleaned;
 }
@@ -1253,31 +1284,31 @@ function assertJsonFooter(value: unknown): string {
   }
   return assertJsonString(
     value,
-    "왼쪽 꼬리말",
+    t("pdfTheme.field.footerLeft"),
     EDITORIAL_PDF_THEME_LIMITS.pageText
   );
 }
 
 function assertJsonTitleMode(value: unknown, label: string): EditorialPdfTitleMode {
   if (value === "file-title" || value === "custom" || value === "blank") return value;
-  throw new Error(`${label}이(가) 올바른 제목 모드가 아닙니다.`);
+  throw new Error(t("pdfTheme.json.titleMode", { field: label }));
 }
 
 function assertJsonHex(value: unknown, label: string): string {
   const hex = canonicalEditorialPdfHex(value);
-  if (!hex) throw new Error(`${label}은(는) #RRGGBB 색상이어야 합니다.`);
+  if (!hex) throw new Error(t("pdfTheme.json.hex", { field: label }));
   return hex;
 }
 
 function strictExchangeTheme(value: unknown): EditorialPdfThemeV1 {
   if (!isRecord(value) || value.schemaVersion !== 1) {
-    throw new Error("PDF 테마 schemaVersion은 1이어야 합니다.");
+    throw new Error(t("pdfTheme.json.schemaVersion"));
   }
   if (!isRecord(value.colors) || !isRecord(value.colors.overrides)) {
-    throw new Error("PDF 테마 색상 정보가 올바르지 않습니다.");
+    throw new Error(t("pdfTheme.json.invalidColors"));
   }
   if (!isRecord(value.cover) || !isRecord(value.page)) {
-    throw new Error("PDF 테마 문구 정보가 올바르지 않습니다.");
+    throw new Error(t("pdfTheme.json.invalidText"));
   }
   const overrides = value.colors.overrides;
   const override = (candidate: unknown, label: string): string | null => {
@@ -1287,47 +1318,47 @@ function strictExchangeTheme(value: unknown): EditorialPdfThemeV1 {
   const cover = value.cover;
   const tags = cover.tags;
   if (!Array.isArray(tags)) {
-    throw new Error("표지 태그가 배열이 아닙니다.");
+    throw new Error(t("pdfTheme.json.tagsNotList"));
   }
   const normalizedTags = tags
     .map((tag, index) => assertJsonString(
       tag,
-      `표지 태그 ${index + 1}`,
+      t("pdfTheme.field.coverTag", { number: index + 1 }),
       EDITORIAL_PDF_THEME_LIMITS.tag
     ).trim())
     .filter(Boolean);
   if (normalizedTags.length > EDITORIAL_PDF_THEME_LIMITS.tagCount) {
-    throw new Error(`표지 태그는 ${EDITORIAL_PDF_THEME_LIMITS.tagCount}개 이하여야 합니다.`);
+    throw new Error(t("pdfTheme.json.tooManyTags", { count: EDITORIAL_PDF_THEME_LIMITS.tagCount }));
   }
   const page = value.page;
   if (typeof page.showPageNumber !== "boolean") {
-    throw new Error("쪽번호 표시 설정은 true 또는 false여야 합니다.");
+    throw new Error(t("pdfTheme.json.pageNumber"));
   }
   return {
     schemaVersion: EDITORIAL_PDF_THEME_SCHEMA_VERSION,
     colors: {
-      key: assertJsonHex(value.colors.key, "키 컬러"),
+      key: assertJsonHex(value.colors.key, t("pdfTheme.field.keyColor")),
       overrides: {
-        onKey: override(overrides.onKey, "키 배경 위 글자색"),
-        keyInk: override(overrides.keyInk, "종이 위 브랜드 글자색"),
-        accentLine: override(overrides.accentLine, "포인트 선 색상")
+        onKey: override(overrides.onKey, t("pdfTheme.field.onKeyColor")),
+        keyInk: override(overrides.keyInk, t("pdfTheme.field.keyInkColor")),
+        accentLine: override(overrides.accentLine, t("pdfTheme.field.accentLineColor"))
       }
     },
     cover: {
-      kicker: assertJsonString(cover.kicker, "표지 kicker", EDITORIAL_PDF_THEME_LIMITS.coverText),
-      edition: assertJsonString(cover.edition, "표지 edition", EDITORIAL_PDF_THEME_LIMITS.coverText),
-      titleMode: assertJsonTitleMode(cover.titleMode, "표지 제목 모드"),
-      titleText: assertJsonString(cover.titleText, "표지 제목", EDITORIAL_PDF_THEME_LIMITS.coverTitle),
-      subtitle: assertJsonString(cover.subtitle, "표지 부제", EDITORIAL_PDF_THEME_LIMITS.coverText),
-      brand: assertJsonString(cover.brand, "표지 브랜드", EDITORIAL_PDF_THEME_LIMITS.coverText),
-      system: assertJsonString(cover.system, "표지 시스템", EDITORIAL_PDF_THEME_LIMITS.coverText),
-      detail: assertJsonString(cover.detail, "표지 설명", EDITORIAL_PDF_THEME_LIMITS.coverText),
+      kicker: assertJsonString(cover.kicker, t("pdfTheme.field.coverKicker"), EDITORIAL_PDF_THEME_LIMITS.coverText),
+      edition: assertJsonString(cover.edition, t("pdfTheme.field.coverEdition"), EDITORIAL_PDF_THEME_LIMITS.coverText),
+      titleMode: assertJsonTitleMode(cover.titleMode, t("pdfTheme.field.coverTitleMode")),
+      titleText: assertJsonString(cover.titleText, t("pdfTheme.field.coverTitle"), EDITORIAL_PDF_THEME_LIMITS.coverTitle),
+      subtitle: assertJsonString(cover.subtitle, t("pdfTheme.field.coverSubtitle"), EDITORIAL_PDF_THEME_LIMITS.coverText),
+      brand: assertJsonString(cover.brand, t("pdfTheme.field.coverBrand"), EDITORIAL_PDF_THEME_LIMITS.coverText),
+      system: assertJsonString(cover.system, t("pdfTheme.field.coverSystem"), EDITORIAL_PDF_THEME_LIMITS.coverText),
+      detail: assertJsonString(cover.detail, t("pdfTheme.field.coverDetail"), EDITORIAL_PDF_THEME_LIMITS.coverText),
       tags: normalizedTags
     },
     page: {
-      headerLeft: assertJsonString(page.headerLeft, "왼쪽 머리말", EDITORIAL_PDF_THEME_LIMITS.pageText),
-      headerRightMode: assertJsonTitleMode(page.headerRightMode, "오른쪽 머리말 모드"),
-      headerRightText: assertJsonString(page.headerRightText, "오른쪽 머리말", EDITORIAL_PDF_THEME_LIMITS.pageText),
+      headerLeft: assertJsonString(page.headerLeft, t("pdfTheme.field.headerLeft"), EDITORIAL_PDF_THEME_LIMITS.pageText),
+      headerRightMode: assertJsonTitleMode(page.headerRightMode, t("pdfTheme.field.headerRightMode")),
+      headerRightText: assertJsonString(page.headerRightText, t("pdfTheme.field.headerRight"), EDITORIAL_PDF_THEME_LIMITS.pageText),
       footerLeft: assertJsonFooter(page.footerLeft),
       showPageNumber: page.showPageNumber
     }
@@ -1350,7 +1381,7 @@ export function stringifyEditorialPdfThemeExchange(
   };
   const json = `${JSON.stringify(exchange, null, 2)}\n`;
   if (jsonByteLength(json) > EDITORIAL_PDF_THEME_MAX_JSON_BYTES) {
-    throw new Error("PDF 테마 JSON이 256KiB보다 큽니다.");
+    throw new Error(t("pdfTheme.json.tooLarge"));
   }
   return json;
 }
@@ -1362,7 +1393,7 @@ export function parseEditorialPdfThemeExchange(
     ? new TextEncoder().encode(source)
     : source;
   if (bytes.byteLength > EDITORIAL_PDF_THEME_MAX_JSON_BYTES) {
-    throw new Error("PDF 테마 JSON이 256KiB보다 큽니다.");
+    throw new Error(t("pdfTheme.json.tooLarge"));
   }
   let parsed: unknown;
   try {
@@ -1372,21 +1403,21 @@ export function parseEditorialPdfThemeExchange(
       }).decode(source)
     ) as unknown;
   } catch {
-    throw new Error("올바른 UTF-8 PDF 테마 JSON 파일이 아닙니다.");
+    throw new Error(t("pdfTheme.json.notUtf8"));
   }
   if (
     !isRecord(parsed)
     || parsed.format !== EDITORIAL_PDF_THEME_EXCHANGE_FORMAT
     || parsed.schemaVersion !== EDITORIAL_PDF_THEME_SCHEMA_VERSION
   ) {
-    throw new Error("HanMark PDF 테마 JSON 형식이 아닙니다.");
+    throw new Error(t("pdfTheme.json.wrongFormat"));
   }
   return {
     format: EDITORIAL_PDF_THEME_EXCHANGE_FORMAT,
     schemaVersion: EDITORIAL_PDF_THEME_SCHEMA_VERSION,
     name: assertJsonString(
       parsed.name,
-      "PDF 테마 이름",
+      t("pdfTheme.field.name"),
       EDITORIAL_PDF_THEME_LIMITS.name,
       { empty: false }
     ).trim(),

@@ -1,4 +1,5 @@
 import { sha256Bytes } from "../io/hash";
+import { t } from "../i18n";
 import { duplicateWordTemplate } from "./defaultWordTemplate";
 import type { DocxPreviewMode } from "./settings";
 import {
@@ -44,7 +45,7 @@ function joinPath(...parts: string[]): string {
 function requireSafeId(id: string): string {
   const normalized = id.trim();
   if (!/^[A-Za-z0-9_-]+$/.test(normalized)) {
-    throw new Error("Word template id may contain only letters, numbers, underscores, and hyphens.");
+    throw new Error(t("wordTemplate.error.invalidId"));
   }
   return normalized;
 }
@@ -58,7 +59,7 @@ function cleanName(name: string): string {
     .join("")
     .replace(/\s+/g, " ")
     .trim();
-  if (!normalized) throw new Error("Word template name cannot be empty.");
+  if (!normalized) throw new Error(t("wordTemplate.error.emptyName"));
   return normalized.slice(0, 120);
 }
 
@@ -212,7 +213,7 @@ export class WordTemplateStore {
       this.setActiveTemplateId("default");
       return fallback;
     }
-    throw new Error(`Word template not found: ${activeId}`);
+    throw new Error(t("wordTemplate.notice.savedNotFound"));
   }
 
   async listTemplates(): Promise<WordTemplateSpec[]> {
@@ -241,13 +242,13 @@ export class WordTemplateStore {
 
   async duplicateTemplate(id: string, name: string): Promise<WordTemplateSpec> {
     const source = await this.readTemplate(id);
-    if (!source) throw new Error(`Word template not found: ${id}`);
+    if (!source) throw new Error(t("wordTemplate.notice.savedNotFound"));
     return this.createTemplate(name, source);
   }
 
   async renameTemplate(id: string, name: string): Promise<WordTemplateSpec> {
     const template = await this.readTemplate(id);
-    if (!template) throw new Error(`Word template not found: ${id}`);
+    if (!template) throw new Error(t("wordTemplate.notice.savedNotFound"));
     template.name = cleanName(name);
     return this.writeTemplate(template);
   }
@@ -261,7 +262,7 @@ export class WordTemplateStore {
 
   async setActiveTemplate(id: string): Promise<WordTemplateSpec> {
     const template = await this.readTemplate(id);
-    if (!template) throw new Error(`Word template not found: ${id}`);
+    if (!template) throw new Error(t("wordTemplate.notice.savedNotFound"));
     this.setActiveTemplateId(template.id);
     return template;
   }
@@ -274,7 +275,7 @@ export class WordTemplateStore {
 
   async exportTemplateJson(id: string): Promise<string> {
     const template = await this.readTemplate(id);
-    if (!template) throw new Error(`Word template not found: ${id}`);
+    if (!template) throw new Error(t("wordTemplate.notice.savedNotFound"));
     return JSON.stringify(template, null, 2);
   }
 

@@ -9,8 +9,10 @@ export const HWP_CALLOUT_TAG = "hwp-source";
 export function renderSourceCallout(c: HwpSourceContract): string {
   const p = c["hwp-source"].replace(/\\/g, "/");
   return [
+    // i18n-data-begin: legacy breadcrumb text, matched verbatim by legacyImportMigration.ts
     `> [!${HWP_CALLOUT_TAG}] 원본: ${p}`,
     `> 한글 문서에서 불러온 노트입니다. **저장** 시 원본 서식 그대로 패치되거나(분기 A), 새 한글 파일이 생성됩니다(분기 B/C).`,
+    // i18n-data-end
     "",
     ""
   ].join("\n");

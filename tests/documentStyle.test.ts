@@ -8,7 +8,9 @@ import { parse, validateHwpx } from "kordoc";
 import {
   applyDocumentStyleToHwpx,
   documentContentWidthHu,
+  defaultDocumentStyleProfile,
   documentStyleSummary,
+  editableDocumentStyle,
   extractDocumentStyleProfile,
   legacyTemplatePageLayout,
   legacyTemplateStyleCache,
@@ -283,7 +285,7 @@ describe("no-install document style profiles", () => {
     }
   });
 
-  it("keeps a logical Hancom font when an installed alias exists and substitutes truly missing fonts", async () => {
+  it("keeps template font names and only reports fonts missing on this machine", async () => {
     const profile = builtInDocumentStyleProfile("korean-communication")!;
     const availableAliases = new Set(["HY신명조", "맑은 고딕", "HY견고딕"]);
     const resolved = await resolveDocumentStyleFonts(profile, {
@@ -292,15 +294,45 @@ describe("no-install document style profiles", () => {
     });
     assert.equal(resolved.profile.roles.body?.character?.fontFamily, "신명조");
     assert.equal(resolved.profile.roles.h4?.character?.fontFamily, "신명조");
-    assert.equal(resolved.profile.roles.h5?.character?.fontFamily, "바탕");
-    assert.ok(resolved.substitutions.some((item) => item.requested === "휴먼명조" && item.replacement === "바탕"));
+    assert.equal(resolved.profile.roles.h5?.character?.fontFamily, "휴먼명조", "missing fonts are not renamed");
+    assert.deepEqual(resolved.substitutions, []);
+    const humanMyeongjo = resolved.missing.find((item) => item.family === "휴먼명조");
+    assert.ok(humanMyeongjo, "휴먼명조 is reported as missing");
+    assert.equal(humanMyeongjo.previewFallback, "바탕");
+    assert.ok(!resolved.missing.some((item) => item.family === "신명조"), "an installed alias satisfies 신명조");
 
     const mac = await resolveDocumentStyleFonts(builtInDocumentStyleProfile("youth-studies")!, {
       platform: "darwin",
       available: () => false
     });
-    assert.equal(mac.profile.roles.body?.character?.fontFamily, "AppleMyungjo");
-    assert.equal(mac.profile.roles.h6?.character?.fontFamily, "Apple SD Gothic Neo");
+    assert.equal(mac.profile.roles.body?.character?.fontFamily, "휴먼명조");
+    assert.equal(mac.missing.find((item) => item.family === "휴먼명조")?.previewFallback, "AppleMyungjo");
+  });
+
+  it("applies explicit template font rules identically on every machine", async () => {
+    const profile = builtInDocumentStyleProfile("youth-studies")!;
+    const rules = { "휴먼명조": "바탕" };
+    const installed = await resolveDocumentStyleFonts(profile, { platform: "win32", available: () => true, rules });
+    const bare = await resolveDocumentStyleFonts(profile, { platform: "darwin", available: () => false, rules });
+    assert.equal(installed.profile.roles.body?.character?.fontFamily, "바탕");
+    assert.deepEqual(installed.profile, bare.profile);
+    assert.ok(installed.substitutions.some((item) => item.requested === "휴먼명조" && item.replacement === "바탕"));
+  });
+
+  it("writes the same HWPX whether or not the template fonts are installed", async () => {
+    const profile = builtInDocumentStyleProfile("korean-communication")!;
+    const markdown = "# 제목\n\n본문 **굵게** 문단입니다.\n";
+    const withFonts = await generateValidatedHwpx(markdown, {
+      documentStyle: profile,
+      fontResolver: { platform: "win32", available: () => true }
+    });
+    const withoutFonts = await generateValidatedHwpx(markdown, {
+      documentStyle: profile,
+      fontResolver: { platform: "darwin", available: () => false }
+    });
+    assert.deepEqual(Buffer.from(withFonts.data), Buffer.from(withoutFonts.data));
+    assert.ok(withoutFonts.warnings.some((warning) => warning.code === "font-missing"));
+    assert.ok(!withFonts.warnings.some((warning) => warning.code === "font-missing"));
   });
 
   it("applies imported styles to stable Kordoc roles and keeps the package parseable", async () => {
@@ -378,5 +410,18 @@ describe("no-install document style profiles", () => {
     const plain = await generateValidatedHwpx("# 안전\n\n본문\n");
     const styled = await applyDocumentStyleToHwpx(plain.data, normalized);
     assert.equal((await validateHwpx(styled.data)).ok, true);
+  });
+});
+
+describe("style editor entry (2.7.0)", () => {
+  it("opens a table-only template under its own name, so saving keeps the name", () => {
+    const profile = editableDocumentStyle({ name: "우리 기관 표" });
+    assert.equal(profile.name, "우리 기관 표");
+    assert.deepEqual({ ...profile, name: "" }, { ...defaultDocumentStyleProfile(), name: "" });
+  });
+
+  it("opens a template with a style as it is", () => {
+    const style = { ...defaultDocumentStyleProfile(), name: "보고서" };
+    assert.equal(editableDocumentStyle({ name: "보고서", documentStyle: style }), style);
   });
 });

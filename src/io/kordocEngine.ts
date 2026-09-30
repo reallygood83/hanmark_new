@@ -1,5 +1,6 @@
 import {
   markdownToHwpx,
+  normalizeGongmunPreset,
   renderHwpxToSvg,
   validateHwpx,
   type FormatProfile,
@@ -23,12 +24,18 @@ import {
   type DocumentStyleProfile,
   type ExtendedHeadingMarker
 } from "./documentStyle";
+import { finalizeHwpxPackage } from "./hwpxPostProcess";
+import { finishGongmunHwpx, type GongmunFinishSpec } from "./hwpxFinish";
+import { paragraphSignature, prepareGongmunMarkdown, type GongmunOutlineStyle } from "./gongmunOutline";
 import {
   fontSubstitutionSummary,
   resolveDocumentStyleFonts,
   type FontResolverOptions,
-  type FontSubstitution
+  type FontSubstitution,
+  type MissingFont
 } from "./fontResolver";
+import { fontGuideLines } from "./fontGuide";
+import { resolveOutputLocale, t, type LanguagePreference } from "../i18n";
 
 export interface GenerateHwpxOptions {
   gongmun?: GongmunOptions;
@@ -36,6 +43,16 @@ export interface GenerateHwpxOptions {
   documentStyle?: DocumentStyleProfile;
   fontResolver?: FontResolverOptions;
   images?: ImagePipelineOptions & { allowFailures?: boolean };
+  /** Language of labels the adapter writes into the document ("auto" reads the note). */
+  outputLanguage?: LanguagePreference;
+  /** Official documents: title for a note without a leading `#` heading (R-024). */
+  gongmunTitle?: string;
+  /** Official documents: finishing of a built-in institution style. */
+  gongmunFinish?: GongmunFinishSpec;
+  /** Official documents: heading and list mapping of a built-in institution style. */
+  gongmunOutline?: GongmunOutlineStyle;
+  /** Engine notes to leave out of the report (message prefixes). */
+  quietEngineNotes?: readonly string[];
 }
 
 export interface GeneratedHwpx {
@@ -51,16 +68,20 @@ export interface GeneratedHwpx {
   imageFailures: ImageFailure[];
   documentStyleName?: string;
   fontSubstitutions: FontSubstitution[];
+  /** Template fonts this machine lacks (reported only; the HWPX keeps their names). */
+  missingFonts: MissingFont[];
   validation: ValidateResult;
 }
 
 export class HwpxValidationError extends Error {
   constructor(public readonly validation: ValidateResult) {
     super(
-      `생성된 HWPX 구조 검증 실패: ${validation.issues
-        .slice(0, 5)
-        .map((issue) => `${issue.path ? issue.path + ": " : ""}${issue.message}`)
-        .join(" / ")}`
+      t("hwpx.validationFailed", {
+        issues: validation.issues
+          .slice(0, 5)
+          .map((issue) => `${issue.path ? issue.path + ": " : ""}${issue.message}`)
+          .join(" / ")
+      })
     );
     this.name = "HwpxValidationError";
   }
@@ -68,6 +89,7 @@ export class HwpxValidationError extends Error {
 
 // Some Hancom/HWP face names differ from the family names exposed to Chromium.
 // Keep the HWPX face untouched, but add the local CSS family while previewing.
+// i18n-data-begin: font family names
 const PREVIEW_FONT_ALIASES: Record<string, string[]> = {
   "한양신명조": ["HYSinMyeongJo-Medium", "HYSinMyeongJo", "HY신명조", "신명조"],
   "신명조": ["HYSinMyeongJo-Medium", "HYSinMyeongJo", "HY신명조", "한양신명조"],
@@ -79,15 +101,28 @@ const PREVIEW_FONT_ALIASES: Record<string, string[]> = {
   "HY견명조": ["HYMyeongJo-Extra"],
   "한양견명조": ["HYMyeongJo-Extra", "HY견명조"],
   "휴먼명조": ["Human Myeongjo", "HumanMyungjo"],
+  "한림고딕체 Regular": ["Hallym Gothic Regular", "한림고딕체", "Hallym Gothic", "Hallym-Regular"],
+  "한림명조체 Regular": ["Hallym Mjo Regular", "한림명조체", "Hallym Mjo", "HallymMjo-Regular"],
   "맑은 고딕": ["Malgun Gothic"]
 };
+// i18n-data-end
 
-export function addPreviewFontAliases(svg: string): string {
+/**
+ * Adds local CSS fallbacks to preview SVG font lists. `previewFallbacks` maps a font
+ * missing on this machine to the family the preview should draw instead; the HWPX
+ * itself keeps the template's font names.
+ */
+export function addPreviewFontAliases(
+  svg: string,
+  previewFallbacks: Readonly<Record<string, string>> = {}
+): string {
   return svg.replace(/font-family="([^"]*)"/g, (_attribute, familyList: string) => {
     const expanded = familyList.replace(/'([^']+)'/g, (token, family: string) => {
-      const aliases = PREVIEW_FONT_ALIASES[family];
-      if (!aliases?.length) return token;
-      return [family, ...aliases].map((name) => `'${name}'`).join(",");
+      const names = [...(PREVIEW_FONT_ALIASES[family] ?? [])];
+      const fallback = previewFallbacks[family];
+      if (fallback && !names.includes(fallback)) names.push(fallback);
+      if (!names.length) return token;
+      return [family, ...names].map((name) => `'${name}'`).join(",");
     });
     return `font-family="${expanded}"`;
   });
@@ -144,7 +179,9 @@ export async function generateValidatedHwpx(
   sourceMarkdown: string,
   options: GenerateHwpxOptions = {}
 ): Promise<GeneratedHwpx> {
-  const adapted = adaptMarkdownForKordoc(sourceMarkdown);
+  const adapted = adaptMarkdownForKordoc(sourceMarkdown, {
+    outputLanguage: options.outputLanguage
+  });
   return generateValidatedHwpxFromAdapted(adapted, options);
 }
 
@@ -152,17 +189,28 @@ async function generateKordocPackage(
   markdown: string,
   options: GenerateHwpxOptions,
   assets: ResolvedImageAsset[]
-): Promise<{ data: ArrayBuffer; placedAssets: ResolvedImageAsset[]; placedOccurrences: number; failures: ImageFailure[] }> {
+): Promise<{
+  data: ArrayBuffer;
+  placedAssets: ResolvedImageAsset[];
+  placedOccurrences: number;
+  failures: ImageFailure[];
+  engineWarnings: string[];
+}> {
+  // Kordoc reports what its generator adjusted silently (for example shrinking an
+  // over-long official-document heading); HanMark shows these in the report.
+  const engineWarnings: string[] = [];
   const raw = await markdownToHwpx(markdown, {
     gongmun: options.gongmun,
-    profile: options.profile
+    profile: options.profile,
+    warnings: engineWarnings
   });
   const hydrated = await hydrateKordocImages(raw, assets);
   return {
     data: hydrated.data,
     placedAssets: hydrated.placedAssets,
     placedOccurrences: hydrated.placedOccurrences,
-    failures: hydrated.failures
+    failures: hydrated.failures,
+    engineWarnings
   };
 }
 
@@ -170,7 +218,18 @@ export async function generateValidatedHwpxFromAdapted(
   adapted: MarkdownAdapterResult,
   options: GenerateHwpxOptions = {}
 ): Promise<GeneratedHwpx> {
-  let markdown = adapted.markdown;
+  // Official documents: consecutive heading levels and a title (R-024).
+  const outline = options.gongmun
+    ? prepareGongmunMarkdown(adapted.markdown, {
+        preset: normalizeGongmunPreset(options.gongmun.preset),
+        numbering: options.gongmun.numbering,
+        h2Marker: options.gongmun.h2Marker,
+        title: options.gongmunTitle,
+        ...options.gongmunOutline
+      })
+    : undefined;
+  const sourceMarkdown = outline?.markdown ?? adapted.markdown;
+  let markdown = sourceMarkdown;
   let assets: ResolvedImageAsset[] = [];
   let imageFailures: ImageFailure[] = [];
   let headingMarkers: ExtendedHeadingMarker[] = [];
@@ -180,10 +239,10 @@ export async function generateValidatedHwpxFromAdapted(
       throw new ImageResolutionError(
         [{
           source: "",
-          alt: "문서 이미지",
+          alt: t("hwpx.imageAlt"),
           occurrences: adapted.imageCount,
           stage: "resolve",
-          message: "이미지를 읽을 HanMark 로더가 연결되지 않았습니다."
+          message: t("hwpx.imageLoaderMissing")
         }],
         0,
         adapted.imageCount
@@ -202,7 +261,12 @@ export async function generateValidatedHwpxFromAdapted(
     if (imageFailures.length && !options.images.allowFailures) {
       throw new ImageResolutionError(imageFailures, assets.length, resolution.references.length);
     }
-    markdown = rewriteMarkdownForResolvedImages(markdown, assets, new Set(imageFailures.map((item) => item.source)));
+    markdown = rewriteMarkdownForResolvedImages(
+      markdown,
+      assets,
+      new Set(imageFailures.map((item) => item.source)),
+      resolveOutputLocale(options.outputLanguage, markdown)
+    );
   }
 
   const generateCurrentPackage = async () => {
@@ -224,7 +288,12 @@ export async function generateValidatedHwpxFromAdapted(
     imageFailures = [...imageFailures, ...generated.failures];
     const failedSources = new Set(imageFailures.map((item) => item.source));
     assets = assets.filter((asset) => !failedSources.has(asset.source));
-    markdown = rewriteMarkdownForResolvedImages(adapted.markdown, assets, failedSources);
+    markdown = rewriteMarkdownForResolvedImages(
+      sourceMarkdown,
+      assets,
+      failedSources,
+      resolveOutputLocale(options.outputLanguage, sourceMarkdown)
+    );
     generated = await generateCurrentPackage();
     if (generated.failures.length) {
       throw new ImageResolutionError(
@@ -238,23 +307,52 @@ export async function generateValidatedHwpxFromAdapted(
   let finalData = generated.data;
   let documentStyleName: string | undefined;
   let fontSubstitutions: FontSubstitution[] = [];
+  let missingFonts: MissingFont[] = [];
   if (options.documentStyle) {
     const resolved = await resolveDocumentStyleFonts(options.documentStyle, options.fontResolver);
     fontSubstitutions = resolved.substitutions;
+    missingFonts = resolved.missing;
     const styled = await applyDocumentStyleToHwpx(finalData, resolved.profile, headingMarkers);
     finalData = styled.data;
     documentStyleName = styled.profile.name;
   }
 
+  // Body paragraphs under their heading (legal family) and the institution style's finishing.
+  const paragraphs = outline?.paragraphs.some((hint) => hint.depth > 0) ? outline.paragraphs : undefined;
+  const closingLine = options.gongmunOutline?.closing?.date ?? options.gongmunOutline?.closing?.sender;
+  const closing = closingLine ? { key: paragraphSignature(closingLine) } : undefined;
+  // Every official-document style draws titles and headings in frames sized for one line (R-027).
+  const fitFrames = !!options.gongmun;
+  if (options.gongmunFinish || paragraphs || closing || fitFrames) {
+    finalData = (await finishGongmunHwpx(finalData, { ...options.gongmunFinish, paragraphs, closing, fitFrames })).data;
+  }
+
+  // Footnote numbers, repeated header rows, and fixed ZIP timestamps (R-018 M2).
+  const finalized = await finalizeHwpxPackage(finalData, {
+    footnoteAutoNumbers: true,
+    repeatHeaderRows: true
+  });
+  finalData = finalized.data;
+
   const validation = await validateHwpx(finalData);
   if (!validation.ok) throw new HwpxValidationError(validation);
   const warnings = [...adapted.warnings];
+  // Kordoc repeats a note for every item it concerns (…: "<item>…"); report each kind once with a count.
+  const engineNotes = new Map<string, AdapterWarning>();
+  for (const message of generated.engineWarnings) {
+    if (options.quietEngineNotes?.some((prefix) => message.startsWith(prefix))) continue;
+    const kind = message.replace(/:\s*"[^"]*"$/u, "");
+    const known = engineNotes.get(kind);
+    if (known) known.count += 1;
+    else engineNotes.set(kind, { code: "engine-note", message, count: 1 });
+  }
+  warnings.push(...engineNotes.values());
   if (options.documentStyle) {
     const headingLevels = markdownHeadingLevels(adapted.markdown);
     if (!headingLevels.has(1) && [...headingLevels].some((level) => level >= 2)) {
       warnings.push({
         code: "document-style-level-unused",
-        message: "문서에 H1(#)이 없어 가져온 HWPX의 H1 스타일은 사용되지 않습니다. 현재 Markdown 제목 단계는 그대로 유지했습니다.",
+        message: t("hwpx.warning.headingLevelUnused"),
         count: 1
       });
     }
@@ -262,14 +360,23 @@ export async function generateValidatedHwpxFromAdapted(
   if (fontSubstitutions.length) {
     warnings.push({
       code: "font-substituted",
-      message: `설치되지 않은 글꼴을 대체해 HWPX에 기록했습니다: ${fontSubstitutionSummary(fontSubstitutions).join(" · ")}`,
+      message: t("hwpx.warning.fontSubstituted", {
+        rules: fontSubstitutionSummary(fontSubstitutions).join(" · ")
+      }),
       count: fontSubstitutions.length
+    });
+  }
+  if (missingFonts.length) {
+    warnings.push({
+      code: "font-missing",
+      message: t("hwpx.warning.fontMissing", { guide: fontGuideLines(missingFonts).join(" / ") }),
+      count: missingFonts.length
     });
   }
   if (imageFailures.length) {
     warnings.push({
       code: "image-missing",
-      message: "일부 이미지를 불러오지 못해 누락 안내 텍스트로 대체했습니다.",
+      message: t("hwpx.warning.imageMissing"),
       count: imageFailures.length
     });
   }
@@ -283,6 +390,7 @@ export async function generateValidatedHwpxFromAdapted(
     imageFailures,
     documentStyleName,
     fontSubstitutions,
+    missingFonts,
     validation
   };
 }
@@ -293,6 +401,9 @@ export async function renderQuickHwpxPreview(
 ): Promise<GeneratedHwpx & { render: RenderSvgResult }> {
   const generated = await generateValidatedHwpx(sourceMarkdown, options);
   const rawRender = await renderHwpxToSvg(generated.data, { reflow: true });
-  const render: RenderSvgResult = { ...rawRender, svg: addPreviewFontAliases(rawRender.svg) };
+  const previewFallbacks = Object.fromEntries(
+    generated.missingFonts.map((item) => [item.family, item.previewFallback])
+  );
+  const render: RenderSvgResult = { ...rawRender, svg: addPreviewFontAliases(rawRender.svg, previewFallbacks) };
   return { ...generated, render };
 }

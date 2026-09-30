@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { resolveOutputLocale, t, tOut, type Locale } from "../i18n";
 import { errorMessage } from "../utils/errors";
 import { transformMarkdownImageTokens } from "./markdownImageTokens";
 
@@ -78,7 +79,8 @@ interface ImageToken {
 
 type TokenTransform = (token: ImageToken) => string;
 
-function transformImageTokens(markdown: string, transform: TokenTransform): string {
+/** `defaultAlt` names an image that has no alt text. */
+function transformImageTokens(markdown: string, transform: TokenTransform, defaultAlt: string): string {
   const output: string[] = [];
   let fenceMarker = "";
   for (let line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
@@ -97,12 +99,12 @@ function transformImageTokens(markdown: string, transform: TokenTransform): stri
     line = transformMarkdownImageTokens(
       line,
       ({ raw, alt, source }) =>
-        transform({ raw, alt: alt || "이미지", source, kind: "markdown" })
+        transform({ raw, alt: alt || defaultAlt, source, kind: "markdown" })
     );
     line = line.replace(/<img\b[^>]*>/gi, (raw) => {
       const source = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(raw)?.[1];
       if (!source) return raw;
-      const alt = /\balt\s*=\s*["']([^"']*)["']/i.exec(raw)?.[1] || "이미지";
+      const alt = /\balt\s*=\s*["']([^"']*)["']/i.exec(raw)?.[1] || defaultAlt;
       return transform({ raw, alt, source, kind: "html" });
     });
     output.push(line);
@@ -110,6 +112,7 @@ function transformImageTokens(markdown: string, transform: TokenTransform): stri
   return output.join("\n");
 }
 
+/** References feed image failure reports only, so an unnamed image is labeled in the interface language. */
 export function collectImageReferences(markdown: string): ImageReference[] {
   const references = new Map<string, ImageReference>();
   transformImageTokens(markdown, (token) => {
@@ -117,7 +120,7 @@ export function collectImageReferences(markdown: string): ImageReference[] {
     if (current) current.occurrences++;
     else references.set(token.source, { source: token.source, alt: token.alt, occurrences: 1 });
     return token.raw;
-  });
+  }, t("save.imageFailure.image"));
   return [...references.values()];
 }
 
@@ -186,12 +189,12 @@ export function inspectImage(data: Uint8Array): {
     if (dimensions) result = { mimeType: "image/jpeg", extension: "jpg", ...dimensions };
   }
 
-  if (!result) throw new Error("지원하지 않거나 손상된 이미지입니다. PNG·JPEG·GIF·BMP를 사용하세요.");
+  if (!result) throw new Error(t("image.unsupported"));
   if (!Number.isFinite(result.width) || !Number.isFinite(result.height) || result.width <= 0 || result.height <= 0) {
-    throw new Error("이미지 크기 정보를 읽을 수 없습니다.");
+    throw new Error(t("image.noDimensions"));
   }
   if (result.width > 50_000 || result.height > 50_000 || result.width * result.height > 100_000_000) {
-    throw new Error(`이미지 픽셀 크기가 너무 큽니다: ${result.width}×${result.height}`);
+    throw new Error(t("image.tooManyPixels", { width: result.width, height: result.height }));
   }
   return result;
 }
@@ -225,7 +228,7 @@ export async function resolveMarkdownImages(
   const failures: ImageFailure[] = [];
   const queued = references.slice(0, maxImages);
   for (const reference of references.slice(maxImages)) {
-    failures.push({ ...reference, stage: "resolve", message: `문서당 이미지 한도 ${maxImages}개를 넘었습니다.` });
+    failures.push({ ...reference, stage: "resolve", message: t("image.tooMany", { limit: maxImages }) });
   }
 
   let next = 0;
@@ -238,12 +241,12 @@ export async function resolveMarkdownImages(
       try {
         const loaded = await options.loader(reference.source);
         const data = toBytes(loaded.data);
-        if (!data.byteLength) throw new Error("이미지 데이터가 비어 있습니다.");
+        if (!data.byteLength) throw new Error(t("image.empty"));
         if (data.byteLength > maxImageBytes) {
-          throw new Error(`이미지 한 개의 용량 한도 ${Math.round(maxImageBytes / 1024 / 1024)}MiB를 넘었습니다.`);
+          throw new Error(t("image.fileTooLarge", { limit: Math.round(maxImageBytes / 1024 / 1024) }));
         }
         if (totalBytes + data.byteLength > maxTotalBytes) {
-          throw new Error(`문서 이미지 총용량 한도 ${Math.round(maxTotalBytes / 1024 / 1024)}MiB를 넘었습니다.`);
+          throw new Error(t("image.totalTooLarge", { limit: Math.round(maxTotalBytes / 1024 / 1024) }));
         }
         const inspected = inspectImage(data);
         totalBytes += data.byteLength;
@@ -281,28 +284,35 @@ export async function resolveMarkdownImages(
   return { references, assets, failures };
 }
 
-function missingLabel(token: ImageToken): string {
-  const clean = (token.alt || token.source.split("/").pop() || "이미지")
+function missingLabel(token: ImageToken, locale: Locale): string {
+  const defaultAlt = tOut(locale, "image.output.defaultAlt");
+  const clean = (token.alt || token.source.split("/").pop() || defaultAlt)
     .replace(/\[/g, " ").replace(/\]/g, " ").replace(/[\r\n]/g, " ").trim();
-  return `[이미지 누락: ${clean || "이미지"}]`;
+  return tOut(locale, "image.output.missing", { name: clean || defaultAlt });
 }
 
+/**
+ * `locale` is the language of the labels written into the document (default alt text,
+ * missing-image placeholders). Without one, the document itself decides ("auto").
+ */
 export function rewriteMarkdownForResolvedImages(
   markdown: string,
   assets: ResolvedImageAsset[],
-  failedSources: Set<string>
+  failedSources: Set<string>,
+  locale: Locale = resolveOutputLocale("auto", markdown)
 ): string {
+  const defaultAlt = tOut(locale, "image.output.defaultAlt");
   const bySource = new Map(assets.map((asset) => [asset.source, asset]));
   return transformImageTokens(markdown, (token) => {
     const asset = bySource.get(token.source);
     if (asset) {
       if (token.kind === "markdown") return token.raw.replace(token.source, asset.safeName);
-      const alt = (token.alt || "이미지")
-        .replace(/\[/g, " ").replace(/\]/g, " ").replace(/[\r\n]/g, " ").trim() || "이미지";
+      const alt = (token.alt || defaultAlt)
+        .replace(/\[/g, " ").replace(/\]/g, " ").replace(/[\r\n]/g, " ").trim() || defaultAlt;
       return `![${alt}](${asset.safeName})`;
     }
-    return failedSources.has(token.source) ? missingLabel(token) : token.raw;
-  });
+    return failedSources.has(token.source) ? missingLabel(token, locale) : token.raw;
+  }, defaultAlt);
 }
 
 function replaceTagAttribute(xml: string, tag: string, attribute: string, value: number): string {
@@ -337,7 +347,7 @@ export async function hydrateKordocImages(
   const zip = await JSZip.loadAsync(hwpx);
   const sectionFile = zip.file("Contents/section0.xml");
   const manifestFile = zip.file("Contents/content.hpf");
-  if (!sectionFile || !manifestFile) throw new Error("HWPX 이미지 삽입에 필요한 section0.xml 또는 content.hpf가 없습니다.");
+  if (!sectionFile || !manifestFile) throw new Error(t("image.hwpxPartsMissing"));
   let section = await sectionFile.async("string");
   const manifest = await manifestFile.async("string");
   const byId = new Map(assets.map((asset) => [asset.itemId, asset]));
@@ -367,8 +377,8 @@ export async function hydrateKordocImages(
         stage: "place",
         message:
           actualPlacements === 0
-            ? "이미지가 독립 문단 또는 지원되는 표 셀에 있지 않아 Kordoc 이미지 개체를 만들지 못했습니다."
-            : `이미지 참조 ${asset.occurrences}곳 중 ${actualPlacements}곳만 배치할 수 있습니다.`
+            ? t("image.notPlaced")
+            : t("image.partiallyPlaced", { total: asset.occurrences, placed: actualPlacements })
       });
       continue;
     }
@@ -389,7 +399,7 @@ export class ImageResolutionError extends Error {
     public readonly totalCount: number
   ) {
     const first = failures.slice(0, 3).map((failure) => `${failure.alt}: ${failure.message}`).join(" / ");
-    super(`이미지 ${failures.length}개를 포함하지 못했습니다.${first ? ` ${first}` : ""}`);
+    super(`${t("image.resolutionFailed", { count: failures.length })}${first ? ` ${first}` : ""}`);
     this.name = "ImageResolutionError";
   }
 }

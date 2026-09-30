@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 /** DOM measurements use the same print declarations as the final PDF. */
 export function createPdfElement<K extends keyof HTMLElementTagNameMap>(document: Document, tag: K): HTMLElementTagNameMap[K] {
   return document.createElementNS("http://www.w3.org/1999/xhtml", tag) as HTMLElementTagNameMap[K];
@@ -26,7 +28,7 @@ export function createPdfMeasurementStyle(source: HTMLStyleElement): HTMLStyleEl
       }
     }
   };
-  if (!source.sheet) throw new Error("PDF 출력 스타일을 읽지 못했습니다.");
+  if (!source.sheet) throw new Error(t("pdfExport.error.styleUnreadable"));
   visit(source.sheet.cssRules);
   rules.push(`${scoped} { position:absolute; inset:auto; left:-100000px; top:0; width:170mm; visibility:hidden; pointer-events:none; }`);
   rules.push(`${scoped} .hanmark-pdf-measure-box { display:flow-root; }`);

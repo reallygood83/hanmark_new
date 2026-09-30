@@ -6,12 +6,14 @@ export type HanmarkDocumentStylePresetId =
   | "youth-studies"
   | "custom";
 
+// i18n-data-begin: built-in template names; templateLibrary also uses them for duplicate-name checks and stored names
 export const DOCUMENT_STYLE_PRESET_LABELS: Record<HanmarkDocumentStylePresetId, string> = {
   "kordoc-default": "Kordoc 기본",
   "korean-communication": "한국언론학회",
   "youth-studies": "청소년학",
   custom: "사용자 문서 스타일"
 };
+// i18n-data-end
 
 const PAGE = {
   widthHu: 59_530,
@@ -60,6 +62,7 @@ function paragraph(
   };
 }
 
+// i18n-data-begin: preset names (same as the built-in template names), source file names, HWPX style names, fonts
 const KOREAN_COMMUNICATION: DocumentStyleProfile = {
   schemaVersion: 3,
   name: "한국언론학회",
@@ -99,6 +102,7 @@ const YOUTH_STUDIES: DocumentStyleProfile = {
   },
   page: PAGE
 };
+// i18n-data-end
 
 export function isDocumentStylePresetId(value: unknown): value is HanmarkDocumentStylePresetId {
   return typeof value === "string" && value in DOCUMENT_STYLE_PRESET_LABELS;

@@ -12,6 +12,7 @@ import {
   type ProcessRequest,
   type UserInitiatedAction
 } from "../src/legacy-port/userProcess";
+import { t } from "../src/i18n";
 
 test("trusted Vault paths remain relative and reject escapes", () => {
   assert.equal(
@@ -105,7 +106,7 @@ test("process exit 1 remains an error unless a launcher explicitly accepts it", 
 
   await assert.rejects(
     runUserProcess(exitsOne, createUserInitiatedAction("modal")),
-    /exited with code 1/u
+    (error: unknown) => error instanceof Error && error.message === t("process.exitCode", { code: 1 })
   );
 
   const accepted = await runUserProcess(
@@ -229,7 +230,7 @@ test("reveal execution requires both opaque output and UI action tokens", async 
         createdAt: Date.now()
       } as UserInitiatedAction
     ),
-    /explicit user action/
+    (error: unknown) => error instanceof Error && error.message === t("process.notUserAction")
   );
 
   await assert.rejects(
@@ -248,4 +249,15 @@ test("reveal execution requires both opaque output and UI action tokens", async 
     /newly saved/
   );
   assert.equal(requests.length, 1);
+});
+
+test("a missing external program is reported in plain language", async () => {
+  const program = "hanmark-missing-program-for-test";
+  await assert.rejects(
+    runUserProcess({ executable: program, args: [] }, createUserInitiatedAction("command")),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message === t("process.notFound", { program }) &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
 });

@@ -153,6 +153,64 @@ export function buildOutputRevealRequest(
   };
 }
 
+/** Only document types HanMark itself reads may be handed to the default app. */
+const DEFAULT_APP_EXTENSIONS: ReadonlySet<string> = new Set(["hwp", "hwpx"]);
+
+export function buildOpenWithDefaultAppRequest(
+  platform: OutputRevealPlatform,
+  absoluteFilePath: string
+): ProcessRequest {
+  const fullPath = checkedAbsolutePath(platform, absoluteFilePath);
+  if (platform === "windows") {
+    // Explorer opens a document path with its registered application.
+    return {
+      executable: "explorer.exe",
+      args: [fullPath],
+      windowsHide: false,
+      completionMode: "spawn"
+    };
+  }
+  if (platform === "macos") {
+    return {
+      executable: "/usr/bin/open",
+      args: [fullPath],
+      timeoutMs: 10_000,
+      maxBufferBytes: 64 * 1024
+    };
+  }
+  return {
+    executable: "xdg-open",
+    args: [fullPath],
+    timeoutMs: 10_000,
+    maxBufferBytes: 64 * 1024
+  };
+}
+
+export interface OpenVaultDocumentOptions {
+  vaultPath: string;
+  platform: OutputRevealPlatform;
+  resolveVaultPath(vaultPath: string): string;
+  processRunner?: UserProcessRunner;
+}
+
+/**
+ * Opens a Vault HWP/HWPX document in the operating system's default application,
+ * from the viewer's button click, through the same single process boundary.
+ */
+export async function openVaultDocumentUserInitiated(
+  options: OpenVaultDocumentOptions,
+  action: UserInitiatedAction
+): Promise<void> {
+  assertUserInitiatedAction(action);
+  const vaultPath = normalizeTrustedVaultPath(options.vaultPath);
+  const extension = vaultPath.split(".").pop()?.toLowerCase() ?? "";
+  if (!DEFAULT_APP_EXTENSIONS.has(extension)) {
+    throw new Error("Only HWP and HWPX documents can be opened in the default application.");
+  }
+  const request = buildOpenWithDefaultAppRequest(options.platform, options.resolveVaultPath(vaultPath));
+  await (options.processRunner ?? runUserProcess)(request, action);
+}
+
 /**
  * Reveals an exported file through HanMark's single `spawn(shell:false)`
  * boundary. Call this directly from a fresh button click and pass that click's

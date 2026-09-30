@@ -25,27 +25,11 @@ import {
 } from "../legacy-port/wordTypes";
 import type { WordTemplateStore } from "../legacy-port/wordTemplateStore";
 import { applyWordTemplatePreview } from "./DocxPreviewView";
+import { confirmAction, promptText } from "./dialogs";
+import { t, tKey, type MessageKey } from "../i18n";
 
-const WORD_TEMPLATE_PREVIEW_SAMPLE = `# 제목 1
-
-첫 문단 예시입니다.
-
-본문 문단 예시입니다.
-
-## 제목 2
-
-> 인용문 예시입니다.
-
-\`\`\`ts
-const greeting = "hello";
-\`\`\`
-
-| A | B |
-|---|---|
-| 1 | 2 |
-
-[링크 예시](https://example.com)
-`;
+/** Message key of the sample note shown in the template preview. */
+const WORD_TEMPLATE_PREVIEW_SAMPLE = "wordTemplate.previewSample";
 
 const MAX_VISIBLE_FONT_RESULTS = 200;
 
@@ -69,11 +53,11 @@ function errorMessage(error: unknown): string {
   ) {
     return `${error}`;
   }
-  return "알 수 없는 오류";
+  return t("common.unknownError");
 }
 
 function normalizedTemplateName(value: string): string {
-  return value.trim() || "이름 없는 템플릿";
+  return value.trim() || t("wordTemplate.untitledName");
 }
 
 function normalizedHexColor(value: string, fallback = "#000000"): string {
@@ -142,7 +126,7 @@ class WordFontCombobox {
     const toggle = this.rootEl.createEl("button", {
       cls: "word-font-combobox-toggle",
       text: "▾",
-      attr: { type: "button", "aria-label": "글꼴 목록 열기" }
+      attr: { type: "button", "aria-label": t("wordFont.combobox.openList") }
     });
     this.panelEl = this.rootEl.createDiv({
       cls: "word-font-combobox-panel",
@@ -230,7 +214,7 @@ class WordFontCombobox {
     });
     row.createDiv({
       cls: "word-font-option-name",
-      text: `직접 입력한 “${value}” 사용`
+      text: t("wordFont.combobox.useTyped", { name: value })
     });
     row.createDiv({
       cls: "word-font-option-sample",
@@ -249,17 +233,18 @@ class WordFontCombobox {
       this.panelEl.createDiv({
         cls: "word-font-empty",
         text: typed
-          ? "일치하는 글꼴이 없습니다. 입력한 이름을 그대로 사용할 수 있습니다."
-          : "표시할 글꼴이 없습니다."
+          ? t("wordFont.combobox.noMatch")
+          : t("wordFont.combobox.empty")
       });
       return;
     }
     if (this.matchingEntryCount > this.filteredEntries.length) {
       this.panelEl.createDiv({
         cls: "word-font-empty",
-        text:
-          `${this.matchingEntryCount.toLocaleString()}개 중 ` +
-          `${this.filteredEntries.length}개만 표시합니다. 검색어를 더 입력하세요.`
+        text: t("wordFont.combobox.truncated", {
+          total: this.matchingEntryCount.toLocaleString(),
+          shown: this.filteredEntries.length
+        })
       });
     }
     this.filteredEntries.forEach((entry, index) => {
@@ -358,26 +343,33 @@ export class WordTemplateManagerModal extends Modal {
       super.close();
       return;
     }
-    if (this.confirm("저장하지 않은 변경을 버리고 닫을까요?")) {
+    void this.confirm(t("wordTemplate.confirm.discardAndClose")).then((discard) => {
+      if (!discard) return;
       this.bypassCloseGuard = true;
       super.close();
       this.bypassCloseGuard = false;
-    }
+    });
   }
 
-  private confirm(message: string): boolean {
-    return this.contentEl.ownerDocument.defaultView?.confirm(message) ?? false;
+  /** Electron has no working browser confirm/prompt dialogs; ask through Obsidian modals. */
+  private confirm(message: string): Promise<boolean> {
+    return confirmAction(this.app, {
+      title: t("wordTemplate.dialogTitle"),
+      message,
+      confirmText: t("wordTemplate.continue"),
+      warning: true
+    });
   }
 
-  private prompt(message: string, value: string): string | null {
-    return this.contentEl.ownerDocument.defaultView?.prompt(message, value) ?? null;
+  private prompt(message: string, value: string): Promise<string | null> {
+    return promptText(this.app, { title: t("wordTemplate.dialogTitle"), label: message, value });
   }
 
   private async reload(preferredId?: string): Promise<void> {
     try {
       this.templates = await this.options.store.listTemplates();
       if (!this.templates.length) {
-        throw new Error("사용할 수 있는 Word 템플릿이 없습니다.");
+        throw new Error(t("wordTemplate.noTemplates"));
       }
       const active = await this.options.store.readActiveTemplate();
       this.activeTemplateId = active.id;
@@ -392,11 +384,11 @@ export class WordTemplateManagerModal extends Modal {
   }
 
   private renderError(error: unknown): void {
-    this.setTitle("Word 템플릿");
+    this.setTitle(t("wordTemplate.dialogTitle"));
     this.contentEl.empty();
     this.contentEl.createDiv({
       cls: "hanmark-word-template-error",
-      text: `Word 템플릿을 열 수 없습니다: ${errorMessage(error)}`
+      text: t("wordTemplate.openFailed", { detail: errorMessage(error) })
     });
   }
 
@@ -424,10 +416,10 @@ export class WordTemplateManagerModal extends Modal {
   private updateDirtyState(): void {
     if (!this.dirtyStatusEl) return;
     if (this.isDirty()) {
-      this.dirtyStatusEl.setText("저장하지 않은 변경");
+      this.dirtyStatusEl.setText(t("wordTemplate.status.unsaved"));
       this.dirtyStatusEl.addClass("is-dirty");
     } else {
-      this.dirtyStatusEl.setText("저장됨");
+      this.dirtyStatusEl.setText(t("wordTemplate.status.saved"));
       this.dirtyStatusEl.removeClass("is-dirty");
     }
   }
@@ -442,7 +434,7 @@ export class WordTemplateManagerModal extends Modal {
 
   private render(): void {
     if (!this.draft) return;
-    this.setTitle("Word 템플릿 관리");
+    this.setTitle(t("wordTemplate.title"));
     this.contentEl.empty();
     this.renderHeader(this.contentEl);
     const layout = this.contentEl.createDiv({ cls: "word-template-layout" });
@@ -473,17 +465,17 @@ export class WordTemplateManagerModal extends Modal {
     const chooser = header.createDiv({ cls: "word-template-header-group" });
     chooser.createDiv({
       cls: "word-template-header-label",
-      text: "템플릿"
+      text: t("wordTemplate.header.template")
     });
     const select = chooser.createEl("select", {
       cls: "dropdown word-template-template-select",
-      attr: { "aria-label": "편집할 Word 템플릿" }
+      attr: { "aria-label": t("wordTemplate.header.select") }
     });
     for (const template of this.templates) {
       const option = select.createEl("option", {
         text:
           template.id === this.activeTemplateId
-            ? `${template.name} · 사용 중`
+            ? t("wordTemplate.header.activeOption", { name: template.name })
             : template.name
       });
       option.value = template.id;
@@ -497,44 +489,44 @@ export class WordTemplateManagerModal extends Modal {
     });
 
     const actions = header.createDiv({ cls: "word-template-actions" });
-    this.createButton(actions, "새로 만들기", "mod-muted", () => {
+    this.createButton(actions, t("wordTemplate.action.new"), "mod-muted", () => {
       void this.createTemplate();
     });
-    this.createButton(actions, "복제", "mod-muted", () => {
+    this.createButton(actions, t("template.manager.duplicate"), "mod-muted", () => {
       void this.duplicateTemplate();
     });
-    this.createButton(actions, "이름 변경", "mod-muted", () => {
+    this.createButton(actions, t("template.manager.rename"), "mod-muted", () => {
       void this.renameTemplate();
     });
     const deleteButton = this.createButton(
       actions,
-      "삭제",
+      t("template.manager.delete"),
       "mod-warning",
       () => void this.deleteTemplate()
     );
     deleteButton.disabled = draft.id === "default";
-    this.createButton(actions, "가져오기", "mod-muted", () => {
+    this.createButton(actions, t("wordTemplate.action.import"), "mod-muted", () => {
       void this.importJson();
     });
-    this.createButton(actions, "내보내기", "mod-muted", () => {
+    this.createButton(actions, t("wordTemplate.action.export"), "mod-muted", () => {
       void this.exportJson();
     });
-    this.createButton(actions, "저장", "mod-cta", () => {
+    this.createButton(actions, t("wordTemplate.action.save"), "mod-cta", () => {
       void this.saveDraft(false);
     });
-    this.createButton(actions, "저장하고 사용", "mod-cta", () => {
+    this.createButton(actions, t("wordTemplate.action.saveAndUse"), "mod-cta", () => {
       void this.saveDraft(true);
     });
-    this.createButton(actions, "되돌리기", "mod-muted", () => {
+    this.createButton(actions, t("wordTemplate.action.revert"), "mod-muted", () => {
       void this.resetDraft();
     });
-    this.createButton(actions, "닫기", "mod-muted", () => this.close());
+    this.createButton(actions, t("common.close"), "mod-muted", () => this.close());
     this.updateDirtyState();
   }
 
   private renderSidebar(layout: HTMLElement): void {
     const sidebar = layout.createDiv({ cls: "word-template-sidebar" });
-    sidebar.createEl("h3", { text: "스타일" });
+    sidebar.createEl("h3", { text: t("wordTemplate.styles") });
     const list = sidebar.createDiv({ cls: "word-template-style-list" });
     for (const id of WORD_STYLE_IDS) {
       const button = list.createEl("button", {
@@ -556,9 +548,9 @@ export class WordTemplateManagerModal extends Modal {
     if (!draft) return;
     const editor = layout.createDiv({ cls: "word-template-editor" });
 
-    const identity = this.createSection(editor, "템플릿 정보");
+    const identity = this.createSection(editor, t("wordTemplate.section.info"));
     this.createTextInput(
-      this.createFieldRow(identity, "이름"),
+      this.createFieldRow(identity, t("wordTemplate.field.name")),
       draft.name,
       (value) => {
         draft.name = normalizedTemplateName(value);
@@ -569,13 +561,13 @@ export class WordTemplateManagerModal extends Modal {
     const style = draft.styles[this.selectedStyleId];
     const fontSection = this.createSection(
       editor,
-      `${style.displayName} · 글자`
+      t("wordTemplate.section.font", { style: style.displayName })
     );
     this.renderFontEditor(fontSection, style);
 
-    const links = this.createSection(editor, "스타일 연결");
+    const links = this.createSection(editor, t("wordTemplate.section.links"));
     this.createSelect(
-      this.createFieldRow(links, "바탕 스타일"),
+      this.createFieldRow(links, t("wordTemplate.field.basedOn")),
       ["", ...WORD_STYLE_IDS],
       style.basedOn ?? "",
       (value) => {
@@ -586,7 +578,7 @@ export class WordTemplateManagerModal extends Modal {
       }
     );
     this.createSelect(
-      this.createFieldRow(links, "다음 스타일"),
+      this.createFieldRow(links, t("wordTemplate.field.nextStyle")),
       ["", ...WORD_STYLE_IDS],
       style.nextStyle ?? "",
       (value) => {
@@ -600,12 +592,12 @@ export class WordTemplateManagerModal extends Modal {
     if (style.paragraph) {
       const paragraph = this.createSection(
         editor,
-        `${style.displayName} · 문단`
+        t("wordTemplate.section.paragraph", { style: style.displayName })
       );
       this.renderParagraphEditor(paragraph, style);
     }
 
-    const page = this.createSection(editor, "페이지");
+    const page = this.createSection(editor, t("wordTemplate.section.page"));
     this.renderPageEditor(page, draft);
     this.renderFontCatalog(editor, draft);
   }
@@ -662,14 +654,17 @@ export class WordTemplateManagerModal extends Modal {
     container: HTMLElement,
     values: readonly string[],
     selected: string,
-    update: (value: string) => void
+    update: (value: string) => void,
+    /** Readable labels for stored values; the stored value itself never changes. */
+    labels?: Readonly<Record<string, MessageKey>>
   ): HTMLSelectElement {
     const select = container.createEl("select", {
       cls: "dropdown word-template-select"
     });
     for (const value of values) {
+      const label = labels?.[value];
       const option = select.createEl("option", {
-        text: value || "없음"
+        text: label ? tKey(label) : value || t("wordTemplate.option.none")
       });
       option.value = value;
     }
@@ -724,19 +719,19 @@ export class WordTemplateManagerModal extends Modal {
     if (!font || !draft) {
       container.createEl("p", {
         cls: "setting-item-description",
-        text: "이 스타일에는 글자 설정이 없습니다."
+        text: t("wordTemplate.font.none")
       });
       return;
     }
     const entries = this.options.fontCatalog.listFamilies(
       this.documentFontFamilies(draft)
     );
-    const korean = this.createFieldRow(container, "한글 글꼴");
+    const korean = this.createFieldRow(container, t("wordTemplate.font.korean"));
     new WordFontCombobox(korean, {
       value: font.eastAsiaFamily ?? font.family,
       entries,
       sample: this.options.fontCatalog.getPreviewSample(),
-      placeholder: "글꼴 검색 또는 정확한 이름 입력",
+      placeholder: t("wordTemplate.font.placeholder"),
       onValue: (value) => {
         const family = value.trim();
         font.eastAsiaFamily = family;
@@ -744,12 +739,12 @@ export class WordTemplateManagerModal extends Modal {
         this.markDirty();
       }
     });
-    const latin = this.createFieldRow(container, "영문 글꼴");
+    const latin = this.createFieldRow(container, t("wordTemplate.font.latin"));
     new WordFontCombobox(latin, {
       value: font.asciiFamily ?? font.hAnsiFamily ?? font.family,
       entries,
       sample: this.options.fontCatalog.getPreviewSample(),
-      placeholder: "글꼴 검색 또는 정확한 이름 입력",
+      placeholder: t("wordTemplate.font.placeholder"),
       onValue: (value) => {
         const family = value.trim();
         font.asciiFamily = family;
@@ -759,21 +754,21 @@ export class WordTemplateManagerModal extends Modal {
       }
     });
     this.createNumberInput(
-      this.createFieldRow(container, "크기 (pt)"),
+      this.createFieldRow(container, t("wordTemplate.font.size")),
       font.sizePt,
       (value) => {
         font.sizePt = value;
         this.markDirty();
       }
     );
-    const emphasis = this.createFieldRow(container, "강조").createDiv({
+    const emphasis = this.createFieldRow(container, t("wordTemplate.font.emphasis")).createDiv({
       cls: "word-template-inline-group"
     });
-    this.createToggleChip(emphasis, "굵게", font.bold, (value) => {
+    this.createToggleChip(emphasis, t("wordTemplate.font.bold"), font.bold, (value) => {
       font.bold = value;
       this.markDirty();
     });
-    this.createToggleChip(emphasis, "기울임", font.italic, (value) => {
+    this.createToggleChip(emphasis, t("wordTemplate.font.italic"), font.italic, (value) => {
       font.italic = value;
       this.markDirty();
     });
@@ -786,17 +781,22 @@ export class WordTemplateManagerModal extends Modal {
           value === "single" || value === "double" ? value : "none";
         font.underline = underline;
         this.markDirty();
+      },
+      {
+        none: "wordTemplate.option.underline.none",
+        single: "wordTemplate.option.underline.single",
+        double: "wordTemplate.option.underline.double"
       }
     );
 
-    const colorGroup = this.createFieldRow(container, "글자색").createDiv({
+    const colorGroup = this.createFieldRow(container, t("wordTemplate.font.color")).createDiv({
       cls: "word-template-inline-group word-template-color-group"
     });
     const initialColor = normalizedHexColor(font.color ?? "#000000");
     const colorPicker = colorGroup.createEl("input", {
       cls: "word-template-color-picker",
       type: "color",
-      attr: { "aria-label": "글자색 선택" }
+      attr: { "aria-label": t("wordTemplate.font.colorPicker") }
     });
     colorPicker.value = initialColor;
     const colorText = this.createTextInput(
@@ -820,7 +820,7 @@ export class WordTemplateManagerModal extends Modal {
       this.markDirty();
     });
     this.createNumberInput(
-      this.createFieldRow(container, "자간 (pt)"),
+      this.createFieldRow(container, t("wordTemplate.font.charSpacing")),
       font.charSpacingPt ?? 0,
       (value) => {
         font.charSpacingPt = value;
@@ -828,7 +828,7 @@ export class WordTemplateManagerModal extends Modal {
       }
     );
     this.createNumberInput(
-      this.createFieldRow(container, "장평 (%)"),
+      this.createFieldRow(container, t("wordTemplate.font.widthScale")),
       font.widthScalePct ?? 100,
       (value) => {
         font.widthScalePct = value;
@@ -845,7 +845,7 @@ export class WordTemplateManagerModal extends Modal {
     const paragraph = style.paragraph;
     if (!paragraph) return;
     this.createSelect(
-      this.createFieldRow(container, "정렬"),
+      this.createFieldRow(container, t("wordTemplate.paragraph.align")),
       ["left", "center", "right", "justify"],
       paragraph.align,
       (value) => {
@@ -855,10 +855,16 @@ export class WordTemplateManagerModal extends Modal {
             : "left";
         paragraph.align = align;
         this.markDirty();
+      },
+      {
+        left: "wordTemplate.option.align.left",
+        center: "wordTemplate.option.align.center",
+        right: "wordTemplate.option.align.right",
+        justify: "wordTemplate.option.align.justify"
       }
     );
     this.createSelect(
-      this.createFieldRow(container, "줄 간격 방식"),
+      this.createFieldRow(container, t("wordTemplate.paragraph.lineSpacingMode")),
       ["single", "multiple", "exact", "atLeast"],
       paragraph.lineSpacingMode,
       (value) => {
@@ -868,10 +874,16 @@ export class WordTemplateManagerModal extends Modal {
             : "multiple";
         paragraph.lineSpacingMode = mode;
         this.markDirty();
+      },
+      {
+        single: "wordTemplate.option.lineSpacing.single",
+        multiple: "wordTemplate.option.lineSpacing.multiple",
+        exact: "wordTemplate.option.lineSpacing.exact",
+        atLeast: "wordTemplate.option.lineSpacing.atLeast"
       }
     );
     this.createNumberInput(
-      this.createFieldRow(container, "줄 간격 값"),
+      this.createFieldRow(container, t("wordTemplate.paragraph.lineSpacingValue")),
       paragraph.lineSpacingValue,
       (value) => {
         paragraph.lineSpacingValue = value;
@@ -879,11 +891,11 @@ export class WordTemplateManagerModal extends Modal {
       }
     );
     const numbers: Array<[string, keyof typeof paragraph]> = [
-      ["왼쪽 들여쓰기 (pt)", "leftIndentPt"],
-      ["오른쪽 들여쓰기 (pt)", "rightIndentPt"],
-      ["첫 줄 들여쓰기 (pt)", "firstLineIndentPt"],
-      ["문단 위 (pt)", "spacingBeforePt"],
-      ["문단 아래 (pt)", "spacingAfterPt"]
+      [t("wordTemplate.paragraph.leftIndent"), "leftIndentPt"],
+      [t("wordTemplate.paragraph.rightIndent"), "rightIndentPt"],
+      [t("wordTemplate.paragraph.firstLineIndent"), "firstLineIndentPt"],
+      [t("wordTemplate.paragraph.spacingBefore"), "spacingBeforePt"],
+      [t("wordTemplate.paragraph.spacingAfter"), "spacingAfterPt"]
     ];
     for (const [label, key] of numbers) {
       const value = paragraph[key];
@@ -897,12 +909,12 @@ export class WordTemplateManagerModal extends Modal {
         }
       );
     }
-    const flow = this.createFieldRow(container, "흐름").createDiv({
+    const flow = this.createFieldRow(container, t("wordTemplate.paragraph.flow")).createDiv({
       cls: "word-template-inline-group"
     });
     this.createToggleChip(
       flow,
-      "다음 문단과 함께",
+      t("wordTemplate.paragraph.keepWithNext"),
       paragraph.keepWithNext ?? false,
       (value) => {
         paragraph.keepWithNext = value;
@@ -911,7 +923,7 @@ export class WordTemplateManagerModal extends Modal {
     );
     this.createToggleChip(
       flow,
-      "앞에서 쪽 나누기",
+      t("wordTemplate.paragraph.pageBreakBefore"),
       paragraph.pageBreakBefore ?? false,
       (value) => {
         paragraph.pageBreakBefore = value;
@@ -920,7 +932,7 @@ export class WordTemplateManagerModal extends Modal {
     );
     this.createToggleChip(
       flow,
-      "과부·고아 제어",
+      t("wordTemplate.paragraph.widowControl"),
       paragraph.widowControl ?? true,
       (value) => {
         paragraph.widowControl = value;
@@ -934,24 +946,28 @@ export class WordTemplateManagerModal extends Modal {
     draft: WordTemplateSpec
   ): void {
     this.createSelect(
-      this.createFieldRow(container, "방향"),
+      this.createFieldRow(container, t("wordTemplate.page.orientation")),
       ["portrait", "landscape"],
       draft.page.orientation,
       (value) => {
         draft.page.orientation =
           value === "landscape" ? "landscape" : "portrait";
         this.markDirty();
+      },
+      {
+        portrait: "wordTemplate.option.orientation.portrait",
+        landscape: "wordTemplate.option.orientation.landscape"
       }
     );
     const numbers: Array<[string, keyof typeof draft.page]> = [
-      ["용지 너비 (pt)", "widthPt"],
-      ["용지 높이 (pt)", "heightPt"],
-      ["위 여백 (pt)", "marginTopPt"],
-      ["오른쪽 여백 (pt)", "marginRightPt"],
-      ["아래 여백 (pt)", "marginBottomPt"],
-      ["왼쪽 여백 (pt)", "marginLeftPt"],
-      ["머리말 거리 (pt)", "headerDistancePt"],
-      ["꼬리말 거리 (pt)", "footerDistancePt"]
+      [t("wordTemplate.page.width"), "widthPt"],
+      [t("wordTemplate.page.height"), "heightPt"],
+      [t("wordTemplate.page.marginTop"), "marginTopPt"],
+      [t("wordTemplate.page.marginRight"), "marginRightPt"],
+      [t("wordTemplate.page.marginBottom"), "marginBottomPt"],
+      [t("wordTemplate.page.marginLeft"), "marginLeftPt"],
+      [t("wordTemplate.page.headerDistance"), "headerDistancePt"],
+      [t("wordTemplate.page.footerDistance"), "footerDistancePt"]
     ];
     for (const [label, key] of numbers) {
       const value = draft.page[key];
@@ -974,39 +990,39 @@ export class WordTemplateManagerModal extends Modal {
     const details = container.createEl("details", {
       cls: "hanmark-word-template-section"
     });
-    details.createEl("summary", { text: "글꼴 카탈로그" });
+    details.createEl("summary", { text: t("wordFont.catalog.title") });
     const choices = this.options.fontCatalog.listFamilies(
       this.documentFontFamilies(draft)
     );
     details.createEl("p", {
       cls: "setting-item-description",
-      text:
-        `${choices.length.toLocaleString()}개 글꼴을 검색할 수 있습니다. ` +
-        "설치 글꼴 검색은 버튼을 누를 때만 브라우저 권한을 요청합니다."
+      text: t("wordFont.catalog.desc", {
+        count: choices.length.toLocaleString()
+      })
     });
     new Setting(details)
-      .setName("설치된 글꼴")
-      .setDesc("브라우저가 허용하는 설치 글꼴 목록을 사용자가 직접 불러옵니다.")
+      .setName(t("wordFont.catalog.installed.name"))
+      .setDesc(t("wordFont.catalog.installed.desc"))
       .addButton((button) => {
-        button.setButtonText("설치 글꼴 찾기");
+        button.setButtonText(t("wordFont.catalog.installed.find"));
         button.onClick(() => void this.discoverInstalledFonts());
       });
     new Setting(details)
-      .setName("사용자 글꼴 추가")
-      .setDesc("TTF·OTF·TTC·WOFF·WOFF2 파일 또는 폴더를 선택합니다.")
+      .setName(t("wordFont.catalog.custom.name"))
+      .setDesc(t("wordFont.catalog.custom.desc"))
       .addButton((button) => {
-        button.setButtonText("파일 선택");
+        button.setButtonText(t("wordFont.catalog.custom.files"));
         button.onClick(() => void this.importFontFiles(false));
       })
       .addButton((button) => {
-        button.setButtonText("폴더 선택");
+        button.setButtonText(t("wordFont.catalog.custom.folder"));
         button.onClick(() => void this.importFontFiles(true));
       });
     const custom = this.options.fontCatalog.listCustomFonts();
     if (!custom.length) {
       details.createEl("p", {
         cls: "setting-item-description",
-        text: "추가한 사용자 글꼴이 없습니다. 글꼴 이름은 위에서 직접 입력할 수도 있습니다."
+        text: t("wordFont.catalog.custom.none")
       });
       return;
     }
@@ -1022,14 +1038,16 @@ export class WordTemplateManagerModal extends Modal {
         cls: "word-font-option-sample",
         text:
           `${this.options.fontCatalog.getPreviewSample()} · ` +
-          `${entry.sourceLabel ?? "사용자 파일"}`
+          `${entry.sourceLabel ?? t("wordFont.catalog.custom.fileLabel")}`
       }).style.fontFamily =
         `"${entry.previewFamily.replace(/["\\]/g, "")}", sans-serif`;
       const remove = row.createEl("button", {
-        text: "제거",
+        text: t("wordFont.catalog.custom.remove"),
         attr: {
           type: "button",
-          "aria-label": `${entry.family} 사용자 글꼴 제거`
+          "aria-label": t("wordFont.catalog.custom.removeLabel", {
+            family: entry.family
+          })
         }
       });
       remove.addEventListener("click", () => {
@@ -1043,11 +1061,11 @@ export class WordTemplateManagerModal extends Modal {
     const header = preview.createDiv({
       cls: "word-template-preview-header"
     });
-    header.createEl("h3", { text: "미리보기" });
+    header.createEl("h3", { text: t("wordTemplate.preview.title") });
     const tabs = header.createDiv({ cls: "word-preview-tabs" });
     this.createButton(
       tabs,
-      "샘플",
+      t("wordTemplate.preview.sample"),
       this.previewTab === "sample" ? "is-active" : "",
       () => {
         this.previewTab = "sample";
@@ -1056,7 +1074,7 @@ export class WordTemplateManagerModal extends Modal {
     );
     this.createButton(
       tabs,
-      "현재 문서",
+      t("wordTemplate.preview.current"),
       this.previewTab === "current" ? "is-active" : "",
       () => {
         this.previewTab = "current";
@@ -1083,8 +1101,8 @@ export class WordTemplateManagerModal extends Modal {
     const markdown =
       this.previewTab === "current"
         ? activeView?.editor.getValue() ||
-          "미리 볼 마크다운 문서를 열어 주세요."
-        : WORD_TEMPLATE_PREVIEW_SAMPLE;
+          t("wordTemplate.preview.openNote")
+        : t(WORD_TEMPLATE_PREVIEW_SAMPLE);
     const sourcePath = activeView?.file?.path ?? "";
     const rendered = paper.createDiv({
       cls: "word-template-preview-markdown"
@@ -1110,7 +1128,7 @@ export class WordTemplateManagerModal extends Modal {
       paper.empty();
       paper.createDiv({
         cls: "docx-preview-error",
-        text: `템플릿 미리보기를 만들 수 없습니다: ${errorMessage(error)}`
+        text: t("wordTemplate.preview.failed", { detail: errorMessage(error) })
       });
     }
   }
@@ -1120,14 +1138,14 @@ export class WordTemplateManagerModal extends Modal {
     if (!draft || id === draft.id) return;
     if (
       this.isDirty() &&
-      !this.confirm("현재 변경을 저장하지 않고 다른 템플릿을 열까요?")
+      !(await this.confirm(t("wordTemplate.confirm.switch")))
     ) {
       this.render();
       return;
     }
     const template = await this.options.store.readTemplate(id);
     if (!template) {
-      new Notice(`템플릿을 찾을 수 없습니다: ${id}`);
+      new Notice(t("wordTemplate.notice.notFound", { id }));
       this.render();
       return;
     }
@@ -1154,11 +1172,11 @@ export class WordTemplateManagerModal extends Modal {
       this.render();
       new Notice(
         useTemplate
-          ? `저장하고 적용했습니다: ${saved.name}`
-          : `저장했습니다: ${saved.name}`
+          ? t("wordTemplate.notice.savedAndApplied", { name: saved.name })
+          : t("wordTemplate.notice.saved", { name: saved.name })
       );
     } catch (error) {
-      new Notice(`Word 템플릿 저장 실패: ${errorMessage(error)}`);
+      new Notice(t("wordTemplate.notice.saveFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -1167,13 +1185,13 @@ export class WordTemplateManagerModal extends Modal {
     if (!draft) return;
     if (
       this.isDirty() &&
-      !this.confirm("저장하지 않은 변경을 마지막 저장 상태로 되돌릴까요?")
+      !(await this.confirm(t("wordTemplate.confirm.revert")))
     ) {
       return;
     }
     const stored = await this.options.store.readTemplate(draft.id);
     if (!stored) {
-      new Notice("저장된 템플릿을 찾을 수 없습니다.");
+      new Notice(t("wordTemplate.notice.savedNotFound"));
       return;
     }
     this.markPersisted(stored);
@@ -1183,11 +1201,13 @@ export class WordTemplateManagerModal extends Modal {
   private async createTemplate(): Promise<void> {
     if (
       this.isDirty() &&
-      !this.confirm("현재 변경을 저장하지 않고 새 템플릿을 만들까요?")
+      !(await this.confirm(t("wordTemplate.confirm.create")))
     ) {
       return;
     }
-    const name = this.prompt("새 템플릿 이름", "새 Word 템플릿")?.trim();
+    const name = (
+      await this.prompt(t("wordTemplate.prompt.newName"), t("wordTemplate.defaultNewName"))
+    )?.trim();
     if (!name) return;
     try {
       const source =
@@ -1196,7 +1216,7 @@ export class WordTemplateManagerModal extends Modal {
       const created = await this.options.store.createTemplate(name, source);
       await this.reload(created.id);
     } catch (error) {
-      new Notice(`템플릿 만들기 실패: ${errorMessage(error)}`);
+      new Notice(t("wordTemplate.notice.createFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -1205,13 +1225,15 @@ export class WordTemplateManagerModal extends Modal {
     if (!draft) return;
     if (
       this.isDirty() &&
-      !this.confirm("현재 변경을 저장하지 않고 마지막 저장본을 복제할까요?")
+      !(await this.confirm(t("wordTemplate.confirm.duplicate")))
     ) {
       return;
     }
-    const name = this.prompt(
-      "복제할 템플릿 이름",
-      `${draft.name} 복사본`
+    const name = (
+      await this.prompt(
+        t("wordTemplate.prompt.duplicateName"),
+        t("wordTemplate.copyName", { name: draft.name })
+      )
     )?.trim();
     if (!name) return;
     try {
@@ -1221,14 +1243,14 @@ export class WordTemplateManagerModal extends Modal {
       );
       await this.reload(duplicate.id);
     } catch (error) {
-      new Notice(`템플릿 복제 실패: ${errorMessage(error)}`);
+      new Notice(t("wordTemplate.notice.duplicateFailed", { detail: errorMessage(error) }));
     }
   }
 
   private async renameTemplate(): Promise<void> {
     const draft = this.draft;
     if (!draft) return;
-    const name = this.prompt("템플릿 이름 변경", draft.name)?.trim();
+    const name = (await this.prompt(t("wordTemplate.prompt.rename"), draft.name))?.trim();
     if (!name) return;
     try {
       const saved = await this.options.store.renameTemplate(draft.id, name);
@@ -1241,7 +1263,7 @@ export class WordTemplateManagerModal extends Modal {
       this.schedulePreviewRender();
       this.render();
     } catch (error) {
-      new Notice(`템플릿 이름 변경 실패: ${errorMessage(error)}`);
+      new Notice(t("wordTemplate.notice.renameFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -1249,30 +1271,30 @@ export class WordTemplateManagerModal extends Modal {
     const draft = this.draft;
     if (!draft || draft.id === "default") return;
     if (this.templates.length <= 1) {
-      new Notice("최소 한 개의 템플릿은 남아 있어야 합니다.");
+      new Notice(t("wordTemplate.notice.keepOne"));
       return;
     }
-    if (!this.confirm(`“${draft.name}” 템플릿을 삭제할까요?`)) return;
+    if (!(await this.confirm(t("wordTemplate.confirm.delete", { name: draft.name })))) return;
     try {
       await this.options.store.deleteTemplate(draft.id);
       const active = await this.options.store.readActiveTemplate();
       await this.changed(active);
       await this.reload(active.id);
     } catch (error) {
-      new Notice(`템플릿 삭제 실패: ${errorMessage(error)}`);
+      new Notice(t("wordTemplate.notice.deleteFailed", { detail: errorMessage(error) }));
     }
   }
 
   private async importJson(): Promise<void> {
     if (
       this.isDirty() &&
-      !this.confirm("현재 변경을 저장하지 않고 템플릿을 가져올까요?")
+      !(await this.confirm(t("wordTemplate.confirm.import")))
     ) {
       return;
     }
     try {
       const [file] = await this.options.fileGateway.pickFiles({
-        title: "HanMark Word 템플릿 JSON 가져오기",
+        title: t("wordTemplate.import.pickTitle"),
         extensions: ["json"],
         maxFiles: 1,
         maxFileBytes: 5 * 1024 * 1024,
@@ -1283,9 +1305,9 @@ export class WordTemplateManagerModal extends Modal {
         new TextDecoder().decode(file.bytes)
       );
       await this.reload(imported.id);
-      new Notice(`Word 템플릿을 가져왔습니다: ${imported.name}`);
+      new Notice(t("wordTemplate.notice.imported", { name: imported.name }));
     } catch (error) {
-      new Notice(`Word 템플릿 가져오기 실패: ${errorMessage(error)}`);
+      new Notice(t("wordTemplate.notice.importFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -1299,10 +1321,10 @@ export class WordTemplateManagerModal extends Modal {
         safeTemplateFilename(draft)
       );
       if (!result.cancelled) {
-        new Notice(`Word 템플릿을 내보냈습니다: ${result.fileName}`);
+        new Notice(t("wordTemplate.notice.exported", { file: result.fileName }));
       }
     } catch (error) {
-      new Notice(`Word 템플릿 내보내기 실패: ${errorMessage(error)}`);
+      new Notice(t("wordTemplate.notice.exportFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -1310,15 +1332,15 @@ export class WordTemplateManagerModal extends Modal {
     try {
       const result = await this.options.fontCatalog.discoverInstalledFonts();
       this.render();
+      const count = result.entries.length.toLocaleString();
       new Notice(
         result.method === "local-font-access"
-          ? `설치 글꼴 ${result.entries.length.toLocaleString()}개를 불러왔습니다.`
-          : `확인 가능한 글꼴 ${result.entries.length.toLocaleString()}개를 찾았습니다.`
+          ? t("wordFont.notice.installedLoaded", { count })
+          : t("wordFont.notice.knownFound", { count })
       );
     } catch (error) {
       new Notice(
-        `설치 글꼴을 불러오지 못했습니다. 이름을 직접 입력하거나 ` +
-          `글꼴 파일을 선택할 수 있습니다: ${errorMessage(error)}`
+        t("wordFont.notice.installedFailed", { detail: errorMessage(error) })
       );
     }
   }
@@ -1334,9 +1356,9 @@ export class WordTemplateManagerModal extends Modal {
       );
       await this.options.onFontCatalogChanged?.();
       this.render();
-      new Notice(`미리보기 글꼴 ${imported.length}개를 추가했습니다.`);
+      new Notice(t("wordFont.notice.added", { count: imported.length }));
     } catch (error) {
-      new Notice(`글꼴을 추가하지 못했습니다: ${errorMessage(error)}`);
+      new Notice(t("wordFont.notice.addFailed", { detail: errorMessage(error) }));
     }
   }
 
@@ -1346,7 +1368,7 @@ export class WordTemplateManagerModal extends Modal {
     if (!this.options.fontCatalog.removeCustomFont(entry)) return;
     await this.options.onFontCatalogChanged?.();
     this.render();
-    new Notice(`사용자 글꼴을 제거했습니다: ${entry.family}`);
+    new Notice(t("wordFont.notice.removed", { family: entry.family }));
   }
 
   private async changed(active: WordTemplateSpec): Promise<void> {

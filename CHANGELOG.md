@@ -2,6 +2,49 @@
 
 Only versions published as GitHub Releases are listed as releases. The 2.x milestones below preserve the internal development path that was consolidated into the public 2.4.2 release.
 
+## 2.7.0
+
+- Replaced the pinned engine Kordoc 4.2.5 with Kordoc 4.15.7 and rewrote the build hardening for it (versioned replacement manifest, no COM or filesystem paths, one user-initiated process boundary). Kordoc's optional OCR code is never called and no model is downloaded.
+- Import: nested tables, captions, and footnotes are kept; HWP 5 and HWPX produce the same Markdown; PDF two-column text, tables, headings, and footnotes are restored with real page numbers; 24 Korean Adobe CMaps are built in so KSC/UniKS PDFs keep their text. Added a ribbon icon, file-explorer commands for one or many files, drag-and-drop of files and folders, `.hml`, four presets with page range and advanced options, a destination folder setting, password prompts for HWPX (memory only), a shared report with page-numbered warnings and retry buttons, large-file confirmation, and cancellation between files.
+- Added a read-only Hangul document viewer for `.hwp` and `.hwpx` in the vault, with convert, compare, form-note, and open-in-default-app actions.
+- HWPX: real numbered footnotes and hyperlinks, long tables split across pages with a repeated header row in quick mode too, and deterministic packaging (the same note produces the same bytes).
+- Official documents: eight presets (ministry briefing added), institution styles (template library schema 2) with a live preview, note properties with Korean keys and English aliases for cover, approval, heading, closing, notice, and press blocks, an insert-properties button, a non-blocking notation check, a preview, and notices for text the generator removes. Official documents no longer take the table style of the quick HWPX template.
+- Official documents map headings and body text properly in all eight types: a note without a `#` title gets its title property or file name, heading levels are made consecutive so draft letters, notices, and minutes number 1. → 가. → 1) instead of one flat run, body paragraphs of those types sit under their heading, the bullet-style report no longer repeats a number written in a heading ("□ 1)"), and report covers show "2026. 9." instead of "2026. 9..".
+- Added built-in Hallym University institution styles at the top of the institution style list: Ilsong College of Liberal Arts minutes and meeting materials (Hallym Gothic, • / - items, navy table headers) and the AI Convergence Research Institute interim report (cover with blue and teal rules, 1. → 1) → ○ → - → ·). Hallym fonts appear in the font guide.
+- Fixed spaces after bold text disappearing in HWPX previews.
+- The eight official-document types now look different from one another: draft letters include the head and foot tables, notices use 15 pt text and end with the date and sender, minutes use 14 pt text at 130 % line spacing, and plans get the policy cover. Notices no longer place the closing date on the left.
+- A built-in institution style always makes the document type it was made for; the note's type property no longer overrides it, and the export window says so.
+- Official-document properties left blank by "insert properties" no longer produce warnings, type names shown in HanMark's menu (and 공고) are accepted, and an unknown type name is reported instead of being read as a draft letter.
+- Official documents are chosen from one form list instead of a type list plus a style list: the Hallym University forms, the eight standard types, and your own forms. A form decides both the type and the look; your own forms now store their document type.
+- The HWPX preview has a toolbar: switch between quick HWPX and any official-document form, refresh, and save as HWPX without opening the export window. It opens the way it was last used.
+- Official documents print Markdown the same way in every form. Titles that a form draws in a frame (ministry briefing bands, boxes, and contents; band chapters; title boxes) show plain words instead of raw links and marks, link text may contain brackets, `<!-- -->` and `%% %%` comments are left out, bold sub-headings keep their links, report summary boxes print plain text, each line of a quote becomes its own ※ note, and a repeated engine note is reported once with a count.
+- Frames no longer overflow. A long title or value that runs slightly past one line is condensed to 95–85 % width; a longer one wraps and its frame grows (ministry briefing bands, boxes, and contents; report and plan titles and chapter bands; bullet-style report frames; the draft letter's head). The plan cover's information labels fit on one line. Documents whose frames already fit are unchanged.
+- Note assembly: `![[note]]`, heading, and block embeds are inlined in every export format and the preview, with cycle, depth, and missing-note markers; on by default and can be turned off.
+- Toolbar: folds into a slim strip with a pull tab (click the strip, double-click an empty spot, or run the new command; an optional peek shows it while the pointer rests on the strip), keeps each row on one line and moves groups that do not fit into a ⋯ menu, appears in every visible Markdown pane without moving notes when panes change, shows the heading level and pressed text styles at the cursor, remembers the last text and highlight colors, inserts tables from an 8 × 8 grid, folds its formatting row in reading view, and has a minimal look in theme colors.
+- Previews: the HWPX preview keeps its picture while it redraws and returns to the same place, has page buttons and zoom, and follows the heading you are editing (it pauses while you scroll the preview); a failed redraw keeps the previous picture under a notice. The DOCX preview keeps its place, zooms, pages the real DOCX, and follows in proportion.
+- Status bar: characters with and without spaces and 200-character manuscript sheets (the selection's while text is selected), and the note's official-document form with a menu to change it.
+- Empty tabs offer importing a document, a new note, and the files HanMark exported recently.
+- Official-document files are named after their form (`무제 - 업무보고.hwpx`; for notes imported from Hangul files, `원본_업무보고_시각.hwpx`) in the note's output language. A note can be exported to several forms at once, each note remembers its last form (also after renaming or moving it), and the HWPX preview now always shows the form it lists.
+- Waiting states show a quiet ring or a flowing line, and results arrive with a short check; all motion stops when the system asks for reduced motion.
+- Added the old–new comparison table: compare two documents in any importable format and get a note whose identical blocks are aligned first and whose changed words are bold.
+- Added form filling: form notes from HWPX click-here fields, label cells, and header-row tables, two built-in standard draft letters, filled copies saved as new files with a report of unmatched properties and values that did not fit.
+- Footnotes are shown in HTML and Editorial PDF; documents without footnotes produce the same output as before.
+- English interface: follows Obsidian's language and can be fixed in settings. Output labels follow the document's language (English only for notes without Hangul), so Korean notes produce the same documents as before.
+- Fonts: HWPX keeps the template's font names on every computer; a font guide lists missing fonts, preview substitutes, and where to get them, and substitutions can be saved per template.
+- Notes imported by older versions: the original-format command now always creates a new HWPX from the note instead of patching the original.
+- Replaced browser dialogs and silent template-import failures with Obsidian dialogs and notices, explained missing external programs in plain language, and paused slow live previews automatically.
+- Fixed: editing a custom HWPX template that has only a table style no longer renames it; the export center shows the active Word template's name instead of its internal ID; Word template options show readable labels (for example "At least" instead of `atLeast`); the insert-link command selects the whole placeholder text.
+- Built-in HWPX templates and the built-in PDF theme are shown in the interface language; their stored names are unchanged.
+- Settings migrate to v12. Command IDs are unchanged; new commands fold the toolbar and export an official document to several forms.
+
+## 2.6.1
+
+- Added direct PDF saving: generate the PDF, then save it as a file; native printing remains a separate action.
+- Added single-column, two-column A (full-width figures), and two-column B (column-width figures) journal layouts, with 8/10/12mm column spacing.
+- Added independent table width (automatic, one column, full body width). Automatic sizing measures real wrapping at both widths; long tables keep frozen column widths and repeat their headers.
+- Added an optional page break before each top-level heading group.
+- Settings migrate to v11 with the existing single-column layout and automatic table width as defaults. Kordoc stayed at 4.2.5.
+
 ## 2.5.6
 
 - Added an immutable Achmage HanMark PDF theme plus an unlimited Vault-level library of named custom themes with create, duplicate, rename, edit, select, and delete workflows.

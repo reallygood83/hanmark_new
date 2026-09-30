@@ -1,4 +1,6 @@
-export function errorMessage(error: unknown, fallback = "알 수 없는 오류가 발생했습니다."): string {
+import { t } from "../i18n";
+
+export function errorMessage(error: unknown, fallback = t("common.unknownError")): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   if (error && typeof error === "object" && "message" in error) {

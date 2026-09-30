@@ -1,4 +1,4 @@
-import type { FormatProfile } from "kordoc";
+import { normalizeGongmunPreset, type FormatProfile, type GongmunPreset } from "kordoc";
 import {
   normalizeDocumentStyleProfile,
   type DocumentStyleProfile
@@ -9,6 +9,11 @@ import {
   isDocumentStylePresetId,
   type HanmarkDocumentStylePresetId
 } from "./documentStylePresets";
+import type { GongmunOutlineStyle } from "./gongmunOutline";
+import { normalizeGongmunStyleOptions, type CoverDateFormat, type GongmunStyleOptions } from "./gongmunStyle";
+import type { GongmunFinishSpec } from "./hwpxFinish";
+import { BUILTIN_GONGMUN_STYLES, builtinGongmunStyle, isBuiltinGongmunStyleId } from "./institutionStyles";
+import { t, tKey, type MessageKey } from "../i18n";
 
 export const BUILTIN_TEMPLATE_IDS = [
   "builtin:kordoc-default",
@@ -18,20 +23,63 @@ export const BUILTIN_TEMPLATE_IDS = [
 
 export type BuiltInTemplateId = (typeof BUILTIN_TEMPLATE_IDS)[number];
 
+/**
+ * Built-in template names are stored and matched in Korean (duplicate-name checks,
+ * copies, migrations); only their display follows the interface language.
+ */
+const BUILTIN_TEMPLATE_LABELS: Readonly<Record<BuiltInTemplateId, MessageKey>> = {
+  "builtin:kordoc-default": "template.builtin.kordocDefault",
+  "builtin:korean-communication": "template.builtin.koreanCommunication",
+  "builtin:youth-studies": "template.builtin.youthStudies"
+};
+
+/** The name to show for a template: built-in templates in the interface language, custom ones as saved. */
+export function templateDisplayName(template: { id: string; name: string }): string {
+  return isBuiltInTemplateId(template.id) ? tKey(BUILTIN_TEMPLATE_LABELS[template.id]) : template.name;
+}
+
 export interface HanmarkTemplateRecord {
   id: string;
   name: string;
   sourceName?: string;
   documentStyle?: DocumentStyleProfile;
   tableStyle?: FormatProfile;
+  /**
+   * Opt-in font substitutions saved explicitly by the user (template font → font
+   * written instead). Stored, so every computer writes the same HWPX (R-018).
+   */
+  fontSubstitutions?: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Institution style for official documents (기관 서식, 2.7.0 W5). */
+export interface GongmunTemplateRecord {
+  id: string;
+  name: string;
+  options: GongmunStyleOptions;
+  /** Table look read from a sample HWPX (hwpxToProfile). */
+  tableStyle?: FormatProfile;
+  /** Document type the form makes (R-026); older records without one use the chosen type. */
+  preset?: GongmunPreset;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface HanmarkTemplateLibrary {
-  schemaVersion: 1;
+  schemaVersion: 2;
   activeId: string;
   customTemplates: Record<string, HanmarkTemplateRecord>;
+  gongmunTemplates: Record<string, GongmunTemplateRecord>;
+  /** "" = no institution style (Kordoc preset defaults). */
+  activeGongmunId: string;
+  /** Standard type chosen last when no institution form is active (R-026). */
+  activeGongmunPreset: GongmunPreset;
+}
+
+/** One of Kordoc's eight official-document types. */
+export function isGongmunPreset(value: unknown): value is GongmunPreset {
+  return typeof value === "string" && normalizeGongmunPreset(value) === value;
 }
 
 export interface HanmarkTemplateItem {
@@ -41,6 +89,7 @@ export interface HanmarkTemplateItem {
   documentStyle?: DocumentStyleProfile;
   tableStyle?: FormatProfile;
   sourceName?: string;
+  fontSubstitutions?: Record<string, string>;
 }
 
 export interface TemplateLibraryHost {
@@ -64,7 +113,7 @@ function clone<T>(value: T): T {
   return value === undefined ? value : structuredClone(value);
 }
 
-function cleanName(value: unknown, fallback = "사용자 템플릿"): string {
+function cleanName(value: unknown, fallback = t("template.defaultName")): string {
   const source = typeof value === "string" || typeof value === "number" ? String(value) : "";
   const cleaned = Array.from(source, (character) => {
     const code = character.charCodeAt(0);
@@ -79,6 +128,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validTableStyle(value: unknown): value is FormatProfile {
   return isRecord(value) && Array.isArray(value.tables);
+}
+
+function fontFamilyName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || code === 127 ? " " : character;
+  }).join("").replace(/\s+/gu, " ").trim().slice(0, 60);
+  return cleaned || undefined;
+}
+
+/** At most 32 "requested → replacement" pairs with plain family names. */
+export function normalizeFontSubstitutions(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const rules: Record<string, string> = {};
+  for (const [requested, replacement] of Object.entries(value).slice(0, 32)) {
+    const from = fontFamilyName(requested);
+    const to = fontFamilyName(replacement);
+    if (from && to && from !== to) rules[from] = to;
+  }
+  return Object.keys(rules).length ? rules : undefined;
 }
 
 function normalizedRecord(value: unknown, fallbackId?: string): HanmarkTemplateRecord | undefined {
@@ -97,8 +167,9 @@ function normalizedRecord(value: unknown, fallbackId?: string): HanmarkTemplateR
   if (!documentStyle && !tableStyle) return undefined;
   const createdAt = typeof value.createdAt === "string" && value.createdAt ? value.createdAt : new Date().toISOString();
   const updatedAt = typeof value.updatedAt === "string" && value.updatedAt ? value.updatedAt : createdAt;
-  const name = cleanName(value.name, documentStyle?.name || "사용자 템플릿");
+  const name = cleanName(value.name, documentStyle?.name || t("template.defaultName"));
   if (documentStyle) documentStyle = { ...documentStyle, name };
+  const fontSubstitutions = normalizeFontSubstitutions(value.fontSubstitutions);
   return {
     id,
     name,
@@ -107,6 +178,25 @@ function normalizedRecord(value: unknown, fallbackId?: string): HanmarkTemplateR
       : documentStyle?.sourceName,
     documentStyle,
     tableStyle,
+    ...(fontSubstitutions ? { fontSubstitutions } : {}),
+    createdAt,
+    updatedAt
+  };
+}
+
+function normalizedGongmunRecord(value: unknown, fallbackId?: string): GongmunTemplateRecord | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = (typeof value.id === "string" ? value.id : fallbackId ?? "").trim();
+  if (!id.startsWith("gongmun:")) return undefined;
+  const createdAt = typeof value.createdAt === "string" && value.createdAt ? value.createdAt : new Date().toISOString();
+  const updatedAt = typeof value.updatedAt === "string" && value.updatedAt ? value.updatedAt : createdAt;
+  const tableStyle = validTableStyle(value.tableStyle) ? clone(value.tableStyle) : undefined;
+  return {
+    id,
+    name: cleanName(value.name, t("template.gongmunDefaultName")),
+    options: normalizeGongmunStyleOptions(value.options),
+    ...(tableStyle ? { tableStyle } : {}),
+    ...(isGongmunPreset(value.preset) ? { preset: value.preset } : {}),
     createdAt,
     updatedAt
   };
@@ -117,7 +207,14 @@ export function isBuiltInTemplateId(value: unknown): value is BuiltInTemplateId 
 }
 
 export function emptyTemplateLibrary(): HanmarkTemplateLibrary {
-  return { schemaVersion: 1, activeId: "builtin:kordoc-default", customTemplates: {} };
+  return {
+    schemaVersion: 2,
+    activeId: "builtin:kordoc-default",
+    customTemplates: {},
+    gongmunTemplates: {},
+    activeGongmunId: "",
+    activeGongmunPreset: "report"
+  };
 }
 
 export function normalizeTemplateLibrary(value: unknown): HanmarkTemplateLibrary {
@@ -130,6 +227,17 @@ export function normalizeTemplateLibrary(value: unknown): HanmarkTemplateLibrary
   }
   const activeId = typeof value.activeId === "string" ? value.activeId : "";
   if (isBuiltInTemplateId(activeId) || result.customTemplates[activeId]) result.activeId = activeId;
+  // Schema 1 → 2 is lossless: the institution-style fields simply start empty.
+  const gongmunTemplates = isRecord(value.gongmunTemplates) ? value.gongmunTemplates : {};
+  for (const [key, raw] of Object.entries(gongmunTemplates)) {
+    const record = normalizedGongmunRecord(raw, key);
+    if (record) result.gongmunTemplates[record.id] = record;
+  }
+  const activeGongmunId = typeof value.activeGongmunId === "string" ? value.activeGongmunId : "";
+  if (result.gongmunTemplates[activeGongmunId] || isBuiltinGongmunStyleId(activeGongmunId)) {
+    result.activeGongmunId = activeGongmunId;
+  }
+  if (isGongmunPreset(value.activeGongmunPreset)) result.activeGongmunPreset = value.activeGongmunPreset;
   return result;
 }
 
@@ -171,7 +279,7 @@ export function migrateTemplateLibrarySettingsInMemory(settings: unknown): boole
   if (!isRecord(settings)) return false;
   let changed = false;
   const hasLibrary = isRecord(settings.hanmarkTemplateLibrary) &&
-    settings.hanmarkTemplateLibrary.schemaVersion === 1;
+    (settings.hanmarkTemplateLibrary.schemaVersion === 1 || settings.hanmarkTemplateLibrary.schemaVersion === 2);
   const library = normalizeTemplateLibrary(settings.hanmarkTemplateLibrary);
 
   if (!hasLibrary) {
@@ -205,7 +313,7 @@ export function migrateTemplateLibrarySettingsInMemory(settings: unknown): boole
         : "";
       const name = oldTableStyle && oldPreset !== "custom" && tableName
         ? `${baseName} + ${tableName}`
-        : baseName || tableName || "이전 사용자 템플릿";
+        : baseName || tableName || t("template.migratedName");
       const migratedName = cleanName(name);
       const now = new Date().toISOString();
       library.customTemplates[id] = {
@@ -308,7 +416,7 @@ export function putTemplateRecord(plugin: TemplateLibraryHost, raw: HanmarkTempl
     createdAt: existing?.createdAt || raw.createdAt,
     updatedAt: new Date().toISOString()
   });
-  if (!normalized) throw new Error("저장할 HWPX 템플릿에 문서 스타일이나 표 스타일이 없습니다.");
+  if (!normalized) throw new Error(t("template.error.empty"));
   library.customTemplates[normalized.id] = normalized;
   plugin.settings.hanmarkTemplateLibrary = library;
   return clone(normalized);
@@ -326,7 +434,7 @@ export function deleteTemplateRecordInMemory(plugin: TemplateLibraryHost, id: st
 
 export function setActiveTemplateInMemory(plugin: TemplateLibraryHost, id: string): HanmarkTemplateItem {
   const library = getTemplateLibrary(plugin);
-  if (!isBuiltInTemplateId(id) && !library.customTemplates[id]) throw new Error("선택한 HWPX 템플릿을 찾을 수 없습니다.");
+  if (!isBuiltInTemplateId(id) && !library.customTemplates[id]) throw new Error(t("template.error.notFound"));
   library.activeId = id;
   plugin.settings.hanmarkTemplateLibrary = library;
   return activeTemplateItem(plugin);
@@ -338,4 +446,158 @@ export function templateDocumentStyle(plugin: TemplateLibraryHost): DocumentStyl
 
 export function templateTableStyle(plugin: TemplateLibraryHost): FormatProfile | undefined {
   return activeTemplateItem(plugin).tableStyle;
+}
+
+/** Opt-in font substitutions of the active HWPX template ({} when none). */
+export function templateFontSubstitutions(plugin: TemplateLibraryHost): Record<string, string> {
+  return { ...(activeTemplateItem(plugin).fontSubstitutions ?? {}) };
+}
+
+/** Saves (or clears with `undefined`) the substitutions of a custom HWPX template. */
+export function setTemplateFontSubstitutionsInMemory(
+  plugin: TemplateLibraryHost,
+  id: string,
+  rules: Record<string, string> | undefined
+): HanmarkTemplateRecord {
+  const library = getTemplateLibrary(plugin);
+  const record = library.customTemplates[id];
+  if (!record) throw new Error(t("template.error.notFound"));
+  const normalized = normalizeFontSubstitutions(rules);
+  const next: HanmarkTemplateRecord = { ...record, updatedAt: new Date().toISOString() };
+  if (normalized) next.fontSubstitutions = normalized;
+  else delete next.fontSubstitutions;
+  library.customTemplates[id] = next;
+  plugin.settings.hanmarkTemplateLibrary = library;
+  return clone(next);
+}
+
+export function listGongmunTemplates(plugin: TemplateLibraryHost): GongmunTemplateRecord[] {
+  return Object.values(getTemplateLibrary(plugin).gongmunTemplates)
+    .sort((left, right) => left.name.localeCompare(right.name, "ko", { sensitivity: "base" }))
+    .map((record) => clone(record));
+}
+
+/** An institution style as the export uses it: built-in (HanMark) or the user's own. */
+export interface GongmunStyleChoice {
+  id: string;
+  name: string;
+  builtIn: boolean;
+  options: GongmunStyleOptions;
+  tableStyle?: FormatProfile;
+  /** Group label of a built-in style (for example the university). */
+  group?: string;
+  description?: string;
+  /** Document type a built-in style was made for. */
+  preset?: GongmunPreset;
+  finish?: GongmunFinishSpec;
+  quietEngineNotes?: readonly string[];
+  coverDate?: CoverDateFormat;
+  outline?: GongmunOutlineStyle;
+}
+
+function builtinChoice(id: string): GongmunStyleChoice | undefined {
+  const style = builtinGongmunStyle(id);
+  if (!style) return undefined;
+  return {
+    id: style.id,
+    name: tKey(style.name),
+    builtIn: true,
+    options: clone(style.options),
+    group: tKey(style.group),
+    description: tKey(style.description),
+    preset: style.preset,
+    finish: clone(style.finish),
+    quietEngineNotes: style.quietEngineNotes ? [...style.quietEngineNotes] : undefined,
+    coverDate: style.coverDate,
+    outline: style.outline ? { ...style.outline } : undefined
+  };
+}
+
+function customChoice(record: GongmunTemplateRecord): GongmunStyleChoice {
+  const choice: GongmunStyleChoice = { id: record.id, name: record.name, builtIn: false, options: clone(record.options) };
+  if (record.tableStyle) choice.tableStyle = clone(record.tableStyle);
+  if (record.preset) choice.preset = record.preset;
+  return choice;
+}
+
+/** Built-in styles first (in their catalog order), then the user's styles by name. */
+export function listGongmunStyleChoices(plugin: TemplateLibraryHost): GongmunStyleChoice[] {
+  const builtIns = BUILTIN_GONGMUN_STYLES.map((style) => builtinChoice(style.id)).filter(
+    (choice): choice is GongmunStyleChoice => !!choice
+  );
+  return [...builtIns, ...listGongmunTemplates(plugin).map(customChoice)];
+}
+
+/** A built-in or user style by id; undefined for "" or an unknown id (R-028). */
+export function gongmunStyleById(plugin: TemplateLibraryHost, id: string): GongmunStyleChoice | undefined {
+  if (isBuiltinGongmunStyleId(id)) return builtinChoice(id);
+  const record = getTemplateLibrary(plugin).gongmunTemplates[id];
+  return record ? customChoice(record) : undefined;
+}
+
+export function activeGongmunTemplate(plugin: TemplateLibraryHost): GongmunStyleChoice | undefined {
+  return gongmunStyleById(plugin, getTemplateLibrary(plugin).activeGongmunId);
+}
+
+export function newGongmunTemplateRecord(
+  plugin: TemplateLibraryHost,
+  name: string,
+  options: GongmunStyleOptions = {},
+  preset?: GongmunPreset
+): GongmunTemplateRecord {
+  const now = new Date().toISOString();
+  const used = new Set(listGongmunTemplates(plugin).map((record) => record.name.toLocaleLowerCase()));
+  let available = cleanName(name, t("template.gongmunDefaultName"));
+  for (let index = 2; used.has(available.toLocaleLowerCase()); index += 1) {
+    available = `${cleanName(name, t("template.gongmunDefaultName"))} ${index}`;
+  }
+  return {
+    id: `gongmun:${crypto.randomUUID()}`,
+    name: available,
+    options: normalizeGongmunStyleOptions(options),
+    ...(preset ? { preset } : {}),
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+export function putGongmunTemplateInMemory(
+  plugin: TemplateLibraryHost,
+  raw: GongmunTemplateRecord
+): GongmunTemplateRecord {
+  const library = getTemplateLibrary(plugin);
+  const existing = library.gongmunTemplates[raw.id];
+  const normalized = normalizedGongmunRecord({
+    ...raw,
+    createdAt: existing?.createdAt || raw.createdAt,
+    updatedAt: new Date().toISOString()
+  });
+  if (!normalized) throw new Error(t("template.error.notFound"));
+  library.gongmunTemplates[normalized.id] = normalized;
+  plugin.settings.hanmarkTemplateLibrary = library;
+  return clone(normalized);
+}
+
+export function deleteGongmunTemplateInMemory(plugin: TemplateLibraryHost, id: string): boolean {
+  const library = getTemplateLibrary(plugin);
+  if (!library.gongmunTemplates[id]) return false;
+  delete library.gongmunTemplates[id];
+  if (library.activeGongmunId === id) library.activeGongmunId = "";
+  plugin.settings.hanmarkTemplateLibrary = library;
+  return true;
+}
+
+/** "" selects Kordoc's preset defaults (no institution style). */
+export function setActiveGongmunTemplateInMemory(plugin: TemplateLibraryHost, id: string): void {
+  const library = getTemplateLibrary(plugin);
+  if (id && !library.gongmunTemplates[id] && !isBuiltinGongmunStyleId(id)) throw new Error(t("template.error.notFound"));
+  library.activeGongmunId = id;
+  plugin.settings.hanmarkTemplateLibrary = library;
+}
+
+/** Remembers the standard type chosen when no institution form is active (R-026). */
+export function setActiveGongmunPresetInMemory(plugin: TemplateLibraryHost, preset: GongmunPreset): void {
+  const library = getTemplateLibrary(plugin);
+  library.activeGongmunPreset = preset;
+  plugin.settings.hanmarkTemplateLibrary = library;
 }

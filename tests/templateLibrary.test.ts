@@ -3,14 +3,18 @@ import { describe, it } from "node:test";
 import { defaultDocumentStyleProfile } from "../src/io/documentStyle";
 import {
   activeTemplateItem,
+  builtInTemplateItem,
   deleteTemplateRecordInMemory,
   getTemplateLibrary,
   listTemplateItems,
   migrateTemplateLibrarySettingsInMemory,
   newTemplateRecord,
   putTemplateRecord,
-  setActiveTemplateInMemory
+  setActiveTemplateInMemory,
+  templateDisplayName
 } from "../src/io/templateLibrary";
+import { DOCUMENT_STYLE_PRESET_LABELS } from "../src/io/documentStylePresets";
+import { setUiLocale } from "../src/i18n";
 
 function plugin(settings: Record<string, unknown> = {}): any {
   return { settings };
@@ -91,5 +95,22 @@ describe("HWPX template library", () => {
     assert.equal(getTemplateLibrary(target).activeId, "builtin:kordoc-default");
     assert.equal(deleteTemplateRecordInMemory(target, "builtin:kordoc-default"), false);
     assert.equal(listTemplateItems(target).filter((item) => !item.builtIn).length, 1);
+  });
+});
+
+describe("template display names (2.7.0)", () => {
+  it("shows built-in names in the interface language and keeps stored names", () => {
+    const builtIn = builtInTemplateItem("builtin:korean-communication");
+    try {
+      setUiLocale("ko");
+      assert.equal(templateDisplayName(builtIn), DOCUMENT_STYLE_PRESET_LABELS["korean-communication"]);
+      assert.equal(templateDisplayName(builtInTemplateItem("builtin:kordoc-default")), DOCUMENT_STYLE_PRESET_LABELS["kordoc-default"]);
+      setUiLocale("en");
+      assert.equal(templateDisplayName(builtIn), "Korean Society for Journalism and Communication Studies (한국언론학회)");
+      assert.equal(builtIn.name, DOCUMENT_STYLE_PRESET_LABELS["korean-communication"], "the stored name stays Korean");
+      assert.equal(templateDisplayName({ id: "custom:1", name: "우리 기관" }), "우리 기관");
+    } finally {
+      setUiLocale("ko");
+    }
   });
 });

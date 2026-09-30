@@ -16,6 +16,7 @@ import {
   editorialPdfContrastGuidance,
   editorialPdfContrastStatus,
   editorialPdfGraphemeCount,
+  editorialPdfThemeDisplayName,
   emptyEditorialPdfThemeLibrary,
   formatEditorialPdfContrastRatio,
   listEditorialPdfThemeSnapshots,
@@ -35,6 +36,7 @@ import {
   DEFAULT_HANMARK_SETTINGS,
   normalizeHanmarkSettings
 } from "../src/legacy-port/settings";
+import { setUiLocale } from "../src/i18n";
 
 const FIXED_NOW = "2026-08-10T00:00:00.000Z";
 const FIRST_ID = "custom:00000000-0000-4000-8000-000000000001";
@@ -271,6 +273,47 @@ describe("Editorial PDF theme library", () => {
       () => setActiveEditorialPdfTheme(damaged, "custom:missing"),
       /찾을 수 없습니다/u
     );
+  });
+
+  test("localizes only the displayed built-in name, never its stored matching name", () => {
+    const builtIn = builtInEditorialPdfThemeSnapshot();
+    const copyOptions = { id: FIRST_ID, now: FIXED_NOW };
+    assert.equal(editorialPdfThemeDisplayName(builtIn), BUILTIN_EDITORIAL_PDF_THEME_NAME);
+    assert.equal(
+      duplicateEditorialPdfTheme(
+        emptyEditorialPdfThemeLibrary(),
+        BUILTIN_EDITORIAL_PDF_THEME_ID,
+        undefined,
+        copyOptions
+      ).record.name,
+      `${BUILTIN_EDITORIAL_PDF_THEME_NAME} 복사본`
+    );
+
+    setUiLocale("en");
+    try {
+      const displayed = editorialPdfThemeDisplayName(builtIn);
+      assert.doesNotMatch(displayed, /[가-힣]/u);
+      assert.equal(builtIn.name, BUILTIN_EDITORIAL_PDF_THEME_NAME);
+      assert.equal(activeEditorialPdfThemeSnapshot(undefined).name, BUILTIN_EDITORIAL_PDF_THEME_NAME);
+      assert.equal(
+        availableEditorialPdfThemeName(emptyEditorialPdfThemeLibrary(), BUILTIN_EDITORIAL_PDF_THEME_NAME),
+        `${BUILTIN_EDITORIAL_PDF_THEME_NAME} 2`
+      );
+      const copy = duplicateEditorialPdfTheme(
+        emptyEditorialPdfThemeLibrary(),
+        BUILTIN_EDITORIAL_PDF_THEME_ID,
+        undefined,
+        copyOptions
+      ).record.name;
+      assert.ok(copy.startsWith(displayed));
+      assert.doesNotMatch(copy, /[가-힣]/u);
+      assert.doesNotMatch(
+        editorialPdfContrastStatus(resolveEditorialPdfThemeSnapshot(builtIn)),
+        /[가-힣]/u
+      );
+    } finally {
+      setUiLocale("ko");
+    }
   });
 });
 
@@ -624,7 +667,7 @@ describe("settings v9 migration", () => {
       settingsVersion: 8,
       futureSetting: { remains: true }
     });
-    assert.equal(settings.settingsVersion, 11);
+    assert.equal(settings.settingsVersion, 12);
     assert.deepEqual(settings.editorialPdfThemeLibrary, {
       schemaVersion: 1,
       activeId: BUILTIN_EDITORIAL_PDF_THEME_ID,

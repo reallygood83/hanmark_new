@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { ko } from "../src/i18n/ko";
+import { showsText } from "./helpers/uiText";
 
 test("document imports prefer the CMDS Eagle bridge and retain a safe local fallback", async () => {
   const [pipeline, images, settings] = await Promise.all([
@@ -42,7 +44,7 @@ test("document imports prefer the CMDS Eagle bridge and retain a safe local fall
     pipeline,
     /let stagingNoteRemoved = false;[\s\S]*?stagingNoteRemoved = await deleteCmdsStagingNote\(app, stagingNote\)[\s\S]*?directR2Fallback\([\s\S]*?stagingNoteRemoved/u
   );
-  assert.match(pipeline, /staging 노트를 보존했습니다/u);
+  assert.ok(showsText(pipeline, /staging 노트를 보존했습니다/u));
   assert.match(pipeline, /if \(bridge\.eventUploadAttempted\)/u);
   assert.match(pipeline, /uploadImageToR2/u);
   assert.match(
@@ -57,17 +59,15 @@ test("document imports prefer the CMDS Eagle bridge and retain a safe local fall
     pipeline,
     /requestSessionR2Key\(app, settings\.workerUrl, true\)/u
   );
-  assert.match(
-    pipeline,
-    /중복 업로드를 막기 위해 직접 R2 폴백은 실행하지 않았습니다/u
-  );
+  assert.ok(showsText(pipeline, /중복 업로드를 막기 위해 직접 R2 폴백은 실행하지 않았습니다/u));
   assert.match(images, /HanMark-Imported-Images/u);
   assert.match(images, /ownedStagingFile: true/u);
   assert.match(images, /options\.localFolder/u);
   assert.match(
     images,
-    /if \(result\.replacements === 0\) \{[\s\S]*?본문 참조를 찾지 못해 이미지를 저장하지 않았습니다[\s\S]*?continue;/u
+    /if \(result\.replacements === 0\) \{[\s\S]*?"import\.image\.unreferenced"[\s\S]*?continue;/u
   );
+  assert.match(ko["import.image.unreferenced"], /본문 참조를 찾지 못해 이미지를 저장하지 않았습니다/u);
   assert.match(images, /!\[\]\(\$\{attachmentPath\}\)/u);
   assert.match(images, /!\[\[\$\{attachmentPath\}\]\]/u);
   assert.match(settings, /"vault" \| "cmds-eagle-r2" \| "ask"/u);
@@ -77,18 +77,12 @@ test("document imports prefer the CMDS Eagle bridge and retain a safe local fall
 test("partial or late CMDS results preserve staging files instead of cleaning them", async () => {
   const pipeline = await readFile("src/io/kordocImport.ts", "utf8");
 
-  assert.match(
-    pipeline,
-    /if \(bridge\.commandDispatched\)[\s\S]*?staging 노트를 보존했습니다/u
-  );
-  assert.match(
-    pipeline,
-    /if \(bridge\.eventUploadAttempted\)[\s\S]*?staging 노트를 보존했습니다/u
-  );
-  assert.match(
-    pipeline,
-    /if \(!commandSettled\)[\s\S]*?로컬 이미지를 보존했습니다/u
-  );
+  assert.match(pipeline, /if \(bridge\.commandDispatched\)[\s\S]*?"import\.cloud\.commandUnconfirmed"/u);
+  assert.match(pipeline, /if \(bridge\.eventUploadAttempted\)[\s\S]*?"import\.cloud\.eventUnconfirmed"/u);
+  assert.match(pipeline, /if \(!commandSettled\)[\s\S]*?"import\.cloud\.lateWriteKept"/u);
+  assert.match(ko["import.cloud.commandUnconfirmed"], /staging 노트를 보존했습니다/u);
+  assert.match(ko["import.cloud.eventUnconfirmed"], /staging 노트를 보존했습니다/u);
+  assert.match(ko["import.cloud.lateWriteKept"], /로컬 이미지를 보존했습니다/u);
 });
 
 test("CMDS Eagle integration never reads another plugin's private settings or stores its API key", async () => {
@@ -105,5 +99,5 @@ test("CMDS Eagle integration never reads another plugin's private settings or st
   assert.doesNotMatch(sources, /\.obsidian\/plugins\/cmds-eagle/u);
   assert.doesNotMatch(sources, /cmds-eagle\/data\.json/u);
   assert.doesNotMatch(sources, /cmdsEagleApiKey\s*:/u);
-  assert.match(sources, /설정 파일에 저장하지 않습니다/u);
+  assert.ok(showsText(sources, /설정 파일에 저장하지 않습니다/u));
 });

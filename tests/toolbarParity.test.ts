@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { showsText } from "./helpers/uiText";
 
 test("the 2.4.2 toolbar editing entry points remain available", async () => {
   const toolbar = await readFile("src/ui/ToolbarController.ts", "utf8");
@@ -33,7 +34,7 @@ test("the live HWPX preview toggle controls automatic lifecycle refreshes", asyn
   assert.match(preview, /livePreviewEnabled/u);
   assert.match(preview, /scheduleIfEnabled/u);
   assert.match(main, /\(\) => this\.settings\.enableLivePreview/u);
-  assert.match(settings, /실시간 HWPX 미리보기/u);
+  assert.ok(showsText(settings, /실시간 HWPX 미리보기/u));
   assert.match(settings, /this\.host\.settings\.enableLivePreview = enabled/u);
 });
 

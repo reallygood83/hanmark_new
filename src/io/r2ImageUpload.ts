@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 export const R2_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_API_KEY_LENGTH = 4_096;
 const MAX_FILENAME_BYTES = 255;
@@ -114,7 +116,7 @@ function validateHttpsUrl(
   try {
     parsed = new URL(raw.trim());
   } catch {
-    throw new R2UploadError(code, `${label}은(는) 올바른 HTTPS URL이어야 합니다.`);
+    throw new R2UploadError(code, t("r2Upload.invalidUrl", { label }));
   }
   if (
     parsed.protocol !== "https:" ||
@@ -124,7 +126,7 @@ function validateHttpsUrl(
     parsed.search.length > 0 ||
     parsed.hash.length > 0
   ) {
-    throw new R2UploadError(code, `${label}은(는) 쿼리·인증정보가 없는 HTTPS URL이어야 합니다.`);
+    throw new R2UploadError(code, t("r2Upload.urlHasExtras", { label }));
   }
   return parsed;
 }
@@ -147,7 +149,7 @@ function validateApiKey(apiKey: string): string {
     apiKey.length > MAX_API_KEY_LENGTH ||
     hasAsciiControl(apiKey)
   ) {
-    throw new R2UploadError("invalid-api-key", "Cloudflare R2 API 키가 없거나 올바르지 않습니다.");
+    throw new R2UploadError("invalid-api-key", t("r2Upload.invalidApiKey"));
   }
   return apiKey;
 }
@@ -163,7 +165,7 @@ function validateFilename(filename: string): string {
     value.includes("\\") ||
     hasAsciiControl(value)
   ) {
-    throw new R2UploadError("invalid-filename", "업로드 파일 이름이 없거나 안전하지 않습니다.");
+    throw new R2UploadError("invalid-filename", t("r2Upload.invalidFilename"));
   }
   return value;
 }
@@ -173,7 +175,7 @@ function validateContentType(contentType: string): string {
   if (!SUPPORTED_IMAGE_TYPES.has(value)) {
     throw new R2UploadError(
       "unsupported-content-type",
-      "R2 직접 업로드는 PNG, JPEG, GIF, BMP 이미지만 지원합니다."
+      t("r2Upload.unsupportedType")
     );
   }
   return value;
@@ -182,12 +184,12 @@ function validateContentType(contentType: string): string {
 function validateData(data: Uint8Array | ArrayBuffer): Uint8Array {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   if (bytes.byteLength === 0) {
-    throw new R2UploadError("empty-file", "빈 이미지는 업로드할 수 없습니다.");
+    throw new R2UploadError("empty-file", t("r2Upload.emptyFile"));
   }
   if (bytes.byteLength > R2_MAX_IMAGE_BYTES) {
     throw new R2UploadError(
       "file-too-large",
-      `이미지는 ${Math.round(R2_MAX_IMAGE_BYTES / 1024 / 1024)}MB 이하여야 합니다.`
+      t("r2Upload.fileTooLarge", { limit: Math.round(R2_MAX_IMAGE_BYTES / 1024 / 1024) })
     );
   }
   return bytes;
@@ -290,18 +292,18 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function validResponseFilename(value: unknown, fallback: string): string {
   if (value === undefined) return fallback;
   if (typeof value !== "string") {
-    throw new R2UploadError("invalid-response", "R2 Worker가 올바른 파일 이름을 반환하지 않았습니다.");
+    throw new R2UploadError("invalid-response", t("r2Upload.invalidResponseFilename"));
   }
   try {
     return validateFilename(value);
   } catch {
-    throw new R2UploadError("invalid-response", "R2 Worker가 올바른 파일 이름을 반환하지 않았습니다.");
+    throw new R2UploadError("invalid-response", t("r2Upload.invalidResponseFilename"));
   }
 }
 
 function validateObjectKey(value: unknown): string {
   if (typeof value !== "string") {
-    throw new R2UploadError("invalid-response", "R2 Worker 응답에 객체 키가 없습니다.");
+    throw new R2UploadError("invalid-response", t("r2Upload.missingKey"));
   }
   const key = value.normalize("NFC").trim();
   if (
@@ -313,17 +315,17 @@ function validateObjectKey(value: unknown): string {
     key.includes("#") ||
     hasAsciiControl(key)
   ) {
-    throw new R2UploadError("invalid-response", "R2 Worker가 안전하지 않은 객체 키를 반환했습니다.");
+    throw new R2UploadError("invalid-response", t("r2Upload.unsafeKey"));
   }
   for (const segment of key.split("/")) {
     let decoded: string;
     try {
       decoded = decodeURIComponent(segment);
     } catch {
-      throw new R2UploadError("invalid-response", "R2 Worker가 잘못 인코딩된 객체 키를 반환했습니다.");
+      throw new R2UploadError("invalid-response", t("r2Upload.badKeyEncoding"));
     }
     if (decoded.length === 0 || decoded === "." || decoded === "..") {
-      throw new R2UploadError("invalid-response", "R2 Worker가 안전하지 않은 객체 키를 반환했습니다.");
+      throw new R2UploadError("invalid-response", t("r2Upload.unsafeKey"));
     }
   }
   return key;
@@ -331,17 +333,17 @@ function validateObjectKey(value: unknown): string {
 
 function parseWorkerResponse(text: string, fallbackFilename: string): ParsedWorkerResponse {
   if (utf8Length(text) > MAX_RESPONSE_BYTES) {
-    throw new R2UploadError("response-too-large", "R2 Worker 응답이 허용 크기를 초과했습니다.");
+    throw new R2UploadError("response-too-large", t("r2Upload.responseTooLarge"));
   }
   let value: unknown;
   try {
     value = JSON.parse(text) as unknown;
   } catch {
-    throw new R2UploadError("invalid-response", "R2 Worker가 올바른 JSON 응답을 반환하지 않았습니다.");
+    throw new R2UploadError("invalid-response", t("r2Upload.invalidJson"));
   }
   const record = asRecord(value);
   if (!record) {
-    throw new R2UploadError("invalid-response", "R2 Worker 응답 형식이 올바르지 않습니다.");
+    throw new R2UploadError("invalid-response", t("r2Upload.invalidResponse"));
   }
   return {
     key: validateObjectKey(record.key),
@@ -358,7 +360,7 @@ function publicUrlForKey(base: URL, key: string): string {
     url.password.length > 0 ||
     !url.pathname.startsWith(base.pathname)
   ) {
-    throw new R2UploadError("invalid-response", "R2 객체의 공개 URL을 안전하게 만들 수 없습니다.");
+    throw new R2UploadError("invalid-response", t("r2Upload.unsafePublicUrl"));
   }
   return url.href;
 }
@@ -367,7 +369,7 @@ function httpError(status: number): R2UploadError {
   const retryable = status === 408 || status === 429 || status >= 500;
   return new R2UploadError(
     "http-error",
-    `R2 Worker 업로드에 실패했습니다 (HTTP ${status}).`,
+    t("r2Upload.httpError", { status }),
     status,
     retryable
   );
@@ -398,7 +400,7 @@ export async function uploadImageToR2(
     // request headers, including the Bearer secret, in its own error message.
     throw new R2UploadError(
       "network-error",
-      "R2 Worker에 연결하지 못했습니다.",
+      t("r2Upload.networkError"),
       undefined,
       true
     );
@@ -408,7 +410,7 @@ export async function uploadImageToR2(
     throw httpError(response.status);
   }
   if (typeof response.text !== "string") {
-    throw new R2UploadError("invalid-response", "R2 Worker 응답 본문이 올바르지 않습니다.");
+    throw new R2UploadError("invalid-response", t("r2Upload.invalidBody"));
   }
   const parsed = parseWorkerResponse(response.text, upload.filename);
   return {

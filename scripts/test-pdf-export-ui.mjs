@@ -31,7 +31,13 @@ const bundle = await build({
   bundle: true, write: false, format: "iife", globalName: "PdfUi",
   plugins: [{ name: "host-fixture", setup(build) {
     build.onResolve({ filter: /^(obsidian|kordoc)$/ }, args => ({ path: args.path, namespace: "fixture" }));
-    build.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: args.path === "obsidian" ? host : 'export const VERSION = "4.2.5";' }));
+    // Kordoc stand-in: the export modal reaches these through the official-document
+    // options; the PDF flows under test never call them.
+    build.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({
+      contents: args.path === "obsidian"
+        ? host
+        : 'export const VERSION = "4.15.7"; export const normalizeGongmunPreset = (value) => value; export const incompatibleGongmunWarnings = () => []; export const PRESET_ALIAS = {}; export const measureTextWidth = () => 0; export const simulateWrap = () => ({ lines: 1 });'
+    }));
   } }]
 });
 const browser = await chromium.launch({ executablePath: process.env.HANMARK_BROWSER_EXECUTABLE || undefined, headless: true });

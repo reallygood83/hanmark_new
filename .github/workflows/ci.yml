@@ -2,7 +2,7 @@ name: Verify plugin
 
 on:
   push:
-    branches: ["2.6.1"]
+    branches: ["2.7.0"]
   pull_request:
 
 permissions:
@@ -32,3 +32,5 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:pdf-render
       - run: npm run test:pdf-ui
+      - run: npm run test:toolbar-ui
+      - run: npm run test:preview-ui

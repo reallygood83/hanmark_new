@@ -10,6 +10,7 @@ import {
   type EditorialInline
 } from "../io/editorialDocument";
 import { transformMarkdownImageTokens } from "../io/markdownImageTokens";
+import { tOut, type Locale } from "../i18n";
 
 export interface HtmlPageLayout {
   widthPt: number;
@@ -25,6 +26,11 @@ export interface HtmlExportOptions {
   documentStyle?: DocumentStyleProfile;
   page?: Partial<HtmlPageLayout>;
   theme?: "achmage-editorial" | "classic";
+  /**
+   * Document language for the html lang attribute (screen readers, hyphenation).
+   * Defaults to Korean, the language of every HTML file before 2.7.0.
+   */
+  language?: "ko" | "en";
 }
 
 export type HtmlBlockType =
@@ -59,7 +65,7 @@ const DEFAULT_PAGE: HtmlPageLayout = {
 
 const DEFAULT_BODY_STYLE: RoleStyleProfile = {
   character: {
-    fontFamily: "함초롬바탕",
+    fontFamily: "함초롬바탕", // i18n-data: font family name
     latinFontFamily: "Times New Roman",
     fontSizePt: 10,
     color: "#000000",
@@ -370,7 +376,7 @@ function fallbackStyle(role: DocumentStyleRole): RoleStyleProfile {
   return {
     character: {
       ...DEFAULT_BODY_STYLE.character,
-      fontFamily: "맑은 고딕",
+      fontFamily: "맑은 고딕", // i18n-data: font family name
       latinFontFamily: "Arial",
       fontSizePt: DEFAULT_HEADING_SIZES[level - 1] ?? 11,
       bold: true
@@ -510,6 +516,10 @@ ${css}
 </head>`;
 }
 
+function documentLanguage(options: HtmlExportOptions): "ko" | "en" {
+  return options.language === "en" ? "en" : "ko";
+}
+
 function renderClassicStandaloneHtml(
   markdown: string,
   options: HtmlExportOptions
@@ -546,7 +556,7 @@ hr { border: 0; border-top: 1px solid #999; margin: 12px 0; }
   .hanmark-paper { box-shadow: none; }
 }`;
   return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="${documentLanguage(options)}">
 ${renderDocumentHead(options.title, css)}
 <body><main class="hanmark-paper">${body}</main></body>
 </html>`;
@@ -627,7 +637,8 @@ function renderEditorialInlines(inlines: EditorialInline[]): string {
   return output.join("");
 }
 
-function renderEditorialBlocks(blocks: EditorialBlock[]): string {
+/** `locale` is the document language of labels written into the HTML (task states). */
+function renderEditorialBlocks(blocks: EditorialBlock[], locale: Locale): string {
   return blocks.map((block) => {
     if (block.type === "thematic-break") return "<hr>";
     if (block.type === "code") {
@@ -647,10 +658,10 @@ function renderEditorialBlocks(blocks: EditorialBlock[]): string {
       return `<p class="hanmark-line hanmark-body"${alignment}>${renderEditorialInlines(block.inlines)}</p>`;
     }
     if (block.type === "quote") {
-      return `<blockquote class="hanmark-quote">${renderEditorialBlocks(block.blocks)}</blockquote>`;
+      return `<blockquote class="hanmark-quote">${renderEditorialBlocks(block.blocks, locale)}</blockquote>`;
     }
     if (block.type === "callout") {
-      return `<aside class="hanmark-callout" data-callout="${escapeAttribute(block.kind)}">${renderEditorialBlocks(block.blocks)}</aside>`;
+      return `<aside class="hanmark-callout" data-callout="${escapeAttribute(block.kind)}">${renderEditorialBlocks(block.blocks, locale)}</aside>`;
     }
     if (block.type === "list") {
       const tag = block.ordered ? "ol" : "ul";
@@ -660,8 +671,10 @@ function renderEditorialBlocks(blocks: EditorialBlock[]): string {
       const items = block.items.map((listItem) => {
         const task = listItem.checked === undefined
           ? ""
-          : `<span class="hanmark-task" role="img" aria-label="${listItem.checked ? "완료" : "미완료"}">${listItem.checked ? "☑" : "☐"}</span> `;
-        return `<li>${task}${renderEditorialBlocks(listItem.blocks)}</li>`;
+          : `<span class="hanmark-task" role="img" aria-label="${escapeAttribute(
+              listItem.checked ? tOut(locale, "htmlOut.task.done") : tOut(locale, "htmlOut.task.open")
+            )}">${listItem.checked ? "☑" : "☐"}</span> `;
+        return `<li>${task}${renderEditorialBlocks(listItem.blocks, locale)}</li>`;
       }).join("");
       return `<${tag} class="hanmark-list"${start}>${items}</${tag}>`;
     }
@@ -856,7 +869,7 @@ hr { margin: 2.2em 0; border: 0; border-top: 2px solid var(--hanmark-rule); }
 }`;
   return `<!DOCTYPE html>
 <!-- ${KAMI_ATTRIBUTION} -->
-<html lang="ko">
+<html lang="${documentLanguage(options)}">
 ${renderDocumentHead(document.title, css)}
 <body>
 <main class="hanmark-paper">
@@ -865,7 +878,7 @@ ${renderDocumentHead(document.title, css)}
 <h1>${renderEditorialInlines(document.masthead)}</h1>
 <div class="hanmark-masthead-rule" aria-hidden="true"></div>
 </header>
-${renderEditorialBlocks(document.blocks)}
+${renderEditorialBlocks(document.blocks, documentLanguage(options))}
 </main>
 </body>
 </html>`;

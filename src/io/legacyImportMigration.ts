@@ -1,4 +1,5 @@
 import type { App, TFile } from "obsidian";
+import { t } from "../i18n";
 
 const HANMARK_SOURCE_KEYS = new Set([
   "hwp-source",
@@ -196,7 +197,7 @@ export function hasHanmarkSourceMetadata(raw: string): boolean {
 function siblingPath(app: App, source: TFile): string {
   const folder = source.parent?.path;
   const prefix = folder && folder !== "/" ? `${folder}/` : "";
-  const stem = `${source.basename} (일반 Markdown)`;
+  const stem = t("legacy.copyName", { name: source.basename });
   let path = `${prefix}${stem}.md`;
   let index = 1;
   while (app.vault.getAbstractFileByPath(path)) {
@@ -216,7 +217,7 @@ export async function createCleanLegacyImportCopy(
 ): Promise<CleanLegacyImportCopy> {
   const cleanup = stripHanmarkSourceMetadata(await app.vault.read(source));
   if (!cleanup.changed) {
-    throw new Error("이 노트에는 정리할 HanMark 레거시 가져오기 정보가 없습니다.");
+    throw new Error(t("legacy.nothingToClean"));
   }
   const file = await app.vault.create(siblingPath(app, source), cleanup.markdown);
   return { ...cleanup, file };

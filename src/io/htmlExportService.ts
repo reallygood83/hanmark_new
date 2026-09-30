@@ -1,4 +1,11 @@
 import {
+  resolveOutputLocale,
+  t,
+  tOut,
+  type LanguagePreference,
+  type Locale
+} from "../i18n";
+import {
   resolveMarkdownImages,
   type ImageFailure,
   type ImageLoader,
@@ -18,6 +25,11 @@ export const HTML_EXPORT_IMAGE_LIMITS = Object.freeze({
 export interface HtmlExportImageOptions {
   loader: ImageLoader;
   onProgress?: (progress: ImageProgress) => void;
+  /**
+   * Language of labels written into the document (missing-image placeholders,
+   * default alt text). "auto" (default) reads the note itself.
+   */
+  outputLanguage?: LanguagePreference;
 }
 
 export interface HtmlExportImageResult {
@@ -38,7 +50,7 @@ function encodeBase64(data: Uint8Array): string {
 
 function toDataUri(asset: ResolvedImageAsset): string {
   if (!DATA_URI_MIME_TYPES.has(asset.mimeType)) {
-    throw new Error(`HTML에 포함할 수 없는 이미지 형식입니다: ${asset.mimeType}`);
+    throw new Error(t("exportFlow.html.unsupportedImageType", { type: asset.mimeType }));
   }
   return `data:${asset.mimeType};base64,${encodeBase64(asset.data)}`;
 }
@@ -64,13 +76,15 @@ function cleanLabel(value: string, fallback: string): string {
     .trim() || fallback;
 }
 
-function fallbackLabel(source: string): string {
+function fallbackLabel(source: string, locale: Locale): string {
   const withoutQuery = source.split(/[?#]/, 1)[0];
-  return withoutQuery.split(/[\\/]/).pop() || "이미지";
+  return withoutQuery.split(/[\\/]/).pop() || tOut(locale, "image.output.defaultAlt");
 }
 
-function missingLabel(token: Pick<HtmlImageToken, "source" | "alt">): string {
-  return `[이미지 누락: ${cleanLabel(token.alt, fallbackLabel(token.source))}]`;
+function missingLabel(token: Pick<HtmlImageToken, "source" | "alt">, locale: Locale): string {
+  return tOut(locale, "image.output.missing", {
+    name: cleanLabel(token.alt, fallbackLabel(token.source, locale))
+  });
 }
 
 function transformOutsideFences(markdown: string, transform: (line: string) => string): string {
@@ -91,9 +105,13 @@ function transformOutsideFences(markdown: string, transform: (line: string) => s
 
 /**
  * Converts only Obsidian raster embeds into standard Markdown image tokens.
- * Note, canvas, PDF, SVG, and other embed types remain unchanged.
+ * Note, canvas, PDF, SVG, and other embed types remain unchanged. `locale` names an
+ * image without a file name; without one, the document itself decides ("auto").
  */
-export function normalizeObsidianRasterImageEmbeds(markdown: string): string {
+export function normalizeObsidianRasterImageEmbeds(
+  markdown: string,
+  locale: Locale = resolveOutputLocale("auto", markdown)
+): string {
   return transformOutsideFences(markdown, (line) =>
     line.replace(/!\[\[([^\]\r\n]+)\]\]/g, (raw, body: string) => {
       const separator = body.indexOf("|");
@@ -101,8 +119,8 @@ export function normalizeObsidianRasterImageEmbeds(markdown: string): string {
       if (!source || !RASTER_OBSIDIAN_EMBED.test(source)) return raw;
       const requestedAlt = separator >= 0 ? body.slice(separator + 1).trim() : "";
       const alt = /^\d+(?:x\d+)?$/i.test(requestedAlt)
-        ? fallbackLabel(source)
-        : cleanLabel(requestedAlt, fallbackLabel(source));
+        ? fallbackLabel(source, locale)
+        : cleanLabel(requestedAlt, fallbackLabel(source, locale));
       return `![${alt}](<${source.replace(/[<>]/g, "")}>)`;
     })
   );
@@ -111,7 +129,8 @@ export function normalizeObsidianRasterImageEmbeds(markdown: string): string {
 function rewriteImageTokens(
   markdown: string,
   assets: ResolvedImageAsset[],
-  knownFailures: Map<string, ImageFailure>
+  knownFailures: Map<string, ImageFailure>,
+  locale: Locale
 ): { markdown: string; defensiveFailures: ImageFailure[] } {
   const bySource = new Map(assets.map((asset) => [asset.source, asset]));
   const defensiveFailures: ImageFailure[] = [];
@@ -119,7 +138,7 @@ function rewriteImageTokens(
     const replace = (token: HtmlImageToken): string => {
       const asset = bySource.get(token.source);
       if (asset) {
-        return `![${cleanLabel(token.alt, fallbackLabel(token.source))}](${asset.safeName})`;
+        return `![${cleanLabel(token.alt, fallbackLabel(token.source, locale))}](${asset.safeName})`;
       }
       if (!knownFailures.has(token.source)) {
         const failure: ImageFailure = {
@@ -127,12 +146,12 @@ function rewriteImageTokens(
           alt: token.alt,
           occurrences: 1,
           stage: "resolve",
-          message: "HTML 내보내기에서 안전한 내장 이미지로 변환하지 못했습니다."
+          message: t("exportFlow.html.imageNotConverted")
         };
         defensiveFailures.push(failure);
         knownFailures.set(token.source, failure);
       }
-      return missingLabel(token);
+      return missingLabel(token, locale);
     };
 
     let output = transformMarkdownImageTokens(
@@ -142,7 +161,7 @@ function rewriteImageTokens(
     output = output.replace(/<img\b[^>]*>/gi, (raw) => {
       const source = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(raw)?.[1];
       if (!source) return raw;
-      const alt = /\balt\s*=\s*["']([^"']*)["']/i.exec(raw)?.[1] || fallbackLabel(source);
+      const alt = /\balt\s*=\s*["']([^"']*)["']/i.exec(raw)?.[1] || fallbackLabel(source, locale);
       return replace({ raw, alt, source });
     });
     return output;
@@ -157,13 +176,14 @@ function rewriteImageTokens(
  * Callers can discard the result to cancel, invoke this function again to
  * retry, or explicitly continue with `markdown`. Continuing never preserves a
  * failed external image reference: each failure is replaced by a visible
- * `[이미지 누락: ...]` label.
+ * missing-image label in the document's language (`[이미지 누락: ...]` in Korean).
  */
 export async function prepareSelfContainedHtmlMarkdown(
   markdown: string,
   options: HtmlExportImageOptions
 ): Promise<HtmlExportImageResult> {
-  const normalizedMarkdown = normalizeObsidianRasterImageEmbeds(markdown);
+  const locale = resolveOutputLocale(options.outputLanguage, markdown);
+  const normalizedMarkdown = normalizeObsidianRasterImageEmbeds(markdown, locale);
   const resolution = await resolveMarkdownImages(normalizedMarkdown, {
     loader: options.loader,
     onProgress: options.onProgress,
@@ -171,7 +191,7 @@ export async function prepareSelfContainedHtmlMarkdown(
   });
   const dataUriAssets = resolution.assets.map(asDataUriAsset);
   const knownFailures = new Map(resolution.failures.map((failure) => [failure.source, failure]));
-  const rewritten = rewriteImageTokens(normalizedMarkdown, dataUriAssets, knownFailures);
+  const rewritten = rewriteImageTokens(normalizedMarkdown, dataUriAssets, knownFailures, locale);
 
   return {
     markdown: rewritten.markdown,

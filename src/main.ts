@@ -5,11 +5,14 @@ import {
   Notice,
   Platform,
   Plugin,
+  TFile,
+  getLanguage,
   type App,
   type Editor,
   type WorkspaceLeaf
 } from "obsidian";
 import { registerEditorCompatibilityCommands } from "./editorCommands";
+import { resolveOutputLocale, resolveUiLocale, setUiLocale, t } from "./i18n";
 import { createWordTemplateStorage, DocxExportService, type DocxSource } from "./io/docxExport";
 import { unpackBundledAssets } from "./io/assetUnpack";
 import {
@@ -23,7 +26,7 @@ import {
   setActiveDocumentTemplate
 } from "./io/documentStyleSettings";
 import {
-  defaultDocumentStyleProfile,
+  editableDocumentStyle,
   type DocumentStyleProfile
 } from "./io/documentStyle";
 import type {
@@ -47,18 +50,41 @@ import {
   setActiveEditorialPdfTheme,
   type EditorialPdfThemeLibraryV1
 } from "./io/editorialPdfTheme";
-import { importDocument } from "./io/kordocImport";
+import { importCloudSettings } from "./io/kordocImport";
+import { isImportableExtension, type ImportInput } from "./io/importRunner";
+import { assemblyNotice, prepareExportMarkdown } from "./io/exportPreparation";
+import { createVaultAssemblyHost } from "./io/vaultAssemblyHost";
 import {
   createCleanLegacyImportCopy,
   hasHanmarkSourceMetadata
 } from "./io/legacyImportMigration";
 import { createObsidianImageLoader } from "./io/obsidianImageLoader";
 import {
-  exportKordocHwpx,
+  chooseImageFailureAction,
+  exportGongmunFormBesideNote,
   exportKordocHwpxWithOutcome,
-  patchSourceExperimental
+  patchSourceExperimental,
+  readExportSnapshot
 } from "./io/kordocSave";
+import { runGongmunBatch } from "./io/gongmunBatch";
+import { ImageResolutionError } from "./io/imageAssets";
+import { GongmunBatchModal } from "./ui/GongmunBatchModal";
 import {
+  forgetNotePaths,
+  rememberNoteForm,
+  rememberedNoteForm,
+  renameNotePaths,
+  type FormMemory
+} from "./io/formMemory";
+import {
+  forgetRecentExports,
+  isRecentExportFormat,
+  recordRecentExport,
+  renameRecentExports,
+  type RecentExport
+} from "./io/recentExports";
+import {
+  openVaultDocumentUserInitiated,
   revealVaultOutputUserInitiated,
   trustSavedVaultOutput
 } from "./io/outputReveal";
@@ -89,14 +115,52 @@ import {
 } from "./ui/HanmarkSettingTab";
 import { HwpxTemplateManagerModal } from "./ui/HwpxTemplateManagerModal";
 import {
+  HANGUL_DOCUMENT_EXTENSIONS,
+  HanmarkDocumentView,
+  HANMARK_DOCUMENT_VIEW
+} from "./ui/HanmarkDocumentView";
+import { ImportModal, importVaultFiles, type ImportHost } from "./ui/ImportModal";
+import { CompareModal, type CompareHost } from "./ui/CompareModal";
+import {
+  createFormNoteFromBuiltin,
+  createFormNoteFromFile,
+  fillFormFromNote,
+  pickFormAndCreateNote,
+  type FormHost
+} from "./ui/formFlow";
+import { FORM_LINK_KEY } from "./io/formFill";
+import {
   QuickHwpxPreviewView,
-  QUICK_HWPX_PREVIEW_VIEW
+  QUICK_HWPX_PREVIEW_VIEW,
+  type QuickPreviewMode
 } from "./ui/QuickHwpxPreviewView";
+import { GongmunLintModal } from "./ui/GongmunLintModal";
+import { HanmarkStatusBar } from "./ui/statusBar";
+import { StartPanels } from "./ui/startPanel";
+import { GongmunStyleModal } from "./ui/GongmunStyleModal";
+import {
+  currentGongmunFormId,
+  listGongmunForms,
+  notePresetHint,
+  planGongmunExport,
+  selectGongmunFormInMemory
+} from "./io/gongmunExport";
+import {
+  GONGMUN_PRESET_KOREAN_NAMES,
+  GONGMUN_PRESET_PROPERTY_KEY,
+  GONGMUN_PROPERTIES,
+  gongmunPropertyKeysFor
+} from "./io/gongmunProperties";
+import { templateDisplayName, templateFontSubstitutions } from "./io/templateLibrary";
+import type { GongmunPreset } from "kordoc";
+import type { HwpxExportVariant } from "./io/exportTypes";
 import {
   applyToolbarSkin,
   editorFormatting,
   ToolbarController
 } from "./ui/ToolbarController";
+import { EditorActivityHub } from "./ui/editorActivity";
+import { JobTracker } from "./ui/jobTracker";
 import { WordTemplateManagerModal } from "./ui/WordTemplateManagerModal";
 import { errorMessage } from "./utils/errors";
 
@@ -132,26 +196,26 @@ function chooseHtmlImageFailureAction(
       resolve(action);
     };
     const modal = new Modal(app);
-    modal.titleEl.setText(`HTML 이미지 ${failures.length}개를 포함하지 못했습니다`);
+    modal.titleEl.setText(t("exportFlow.htmlImageFailure.title", { count: failures.length }));
     modal.contentEl.createEl("p", {
-      text: "네트워크 또는 첨부 경로를 확인해 다시 시도하거나, 해당 위치를 누락 안내로 바꾸어 계속할 수 있습니다. 실패한 외부 주소는 HTML에 남지 않습니다."
+      text: t("exportFlow.htmlImageFailure.desc")
     });
     const list = modal.contentEl.createEl("ul");
     for (const failure of failures.slice(0, 10)) {
       list.createEl("li", {
-        text: `${failure.alt || failure.source || "이미지"}: ${failure.message}`
+        text: `${failure.alt || failure.source || t("save.imageFailure.image")}: ${failure.message}`
       });
     }
     if (failures.length > 10) {
       modal.contentEl.createEl("p", {
-        text: `외 ${failures.length - 10}개`
+        text: t("exportFlow.imageFailure.more", { count: failures.length - 10 })
       });
     }
     const controls = modal.contentEl.createDiv({
       cls: "hanmark-export-secondary-actions"
     });
     const retry = controls.createEl("button", {
-      text: "다시 시도",
+      text: t("import.report.retry"),
       cls: "mod-cta",
       attr: { type: "button" }
     });
@@ -160,7 +224,7 @@ function chooseHtmlImageFailureAction(
       modal.close();
     };
     const continueButton = controls.createEl("button", {
-      text: "누락 표시로 계속",
+      text: t("save.imageFailure.continue"),
       attr: { type: "button" }
     });
     continueButton.onclick = () => {
@@ -168,7 +232,7 @@ function chooseHtmlImageFailureAction(
       modal.close();
     };
     const cancel = controls.createEl("button", {
-      text: "취소",
+      text: t("common.cancel"),
       attr: { type: "button" }
     });
     cancel.onclick = () => {
@@ -192,26 +256,26 @@ function choosePdfImageFailureAction(
       resolve(action);
     };
     const modal = new Modal(app);
-    modal.titleEl.setText(`PDF 이미지 ${failures.length}개를 포함하지 못했습니다`);
+    modal.titleEl.setText(t("exportFlow.pdfImageFailure.title", { count: failures.length }));
     modal.contentEl.createEl("p", {
-      text: "PDF에는 누락된 이미지를 조용히 제외하지 않습니다. 네트워크 또는 첨부 경로를 확인해 다시 시도하거나 인쇄를 취소하세요."
+      text: t("exportFlow.pdfImageFailure.desc")
     });
     const list = modal.contentEl.createEl("ul");
     for (const failure of failures.slice(0, 10)) {
       list.createEl("li", {
-        text: `${failure.alt || failure.source || "이미지"}: ${failure.message}`
+        text: `${failure.alt || failure.source || t("save.imageFailure.image")}: ${failure.message}`
       });
     }
     if (failures.length > 10) {
       modal.contentEl.createEl("p", {
-        text: `외 ${failures.length - 10}개`
+        text: t("exportFlow.imageFailure.more", { count: failures.length - 10 })
       });
     }
     const controls = modal.contentEl.createDiv({
       cls: "hanmark-export-secondary-actions"
     });
     const retry = controls.createEl("button", {
-      text: "다시 시도",
+      text: t("import.report.retry"),
       cls: "mod-cta",
       attr: { type: "button" }
     });
@@ -220,7 +284,7 @@ function choosePdfImageFailureAction(
       modal.close();
     };
     const cancel = controls.createEl("button", {
-      text: "인쇄 취소",
+      text: t("exportFlow.pdfImageFailure.cancel"),
       attr: { type: "button" }
     });
     cancel.onclick = () => {
@@ -238,10 +302,19 @@ function runtimePlatform(): HanmarkRuntimePlatform {
   return "linux";
 }
 
+/** Obsidian's configured language code ("ko", "en", ...); "en" if unavailable. */
+function obsidianLanguage(): string {
+  try {
+    return typeof getLanguage === "function" ? getLanguage() : "en";
+  } catch {
+    return "en";
+  }
+}
+
 function registerHeadingCommand(plugin: Plugin, level: number): void {
   plugin.addCommand({
     id: `set-heading-${level}`,
-    name: `제목 ${level} 적용`,
+    name: t("command.setHeading", { level }),
     editorCallback: (editor: Editor) => editorFormatting.setHeading(editor, level)
   });
 }
@@ -258,15 +331,24 @@ export default class HanmarkPlugin extends Plugin {
 
   private gateway!: FileGateway;
   private wordTemplateStore!: WordTemplateStore;
+  /** Name of the active custom Word template for display; its id is an internal UUID. */
+  private wordTemplateLabel: { id: string; name: string } | null = null;
   private wordFontCatalog!: WordFontCatalog;
   private docxExporter!: DocxExportService;
   private readonly editorialPdf = new EditorialPdfService();
   private toolbar: ToolbarController | null = null;
+  private statusBar: HanmarkStatusBar | null = null;
+  private startPanels: StartPanels | null = null;
   private settingTab: HanmarkSettingTab | null = null;
   private lastMarkdownView: MarkdownView | null = null;
+  /** Cursor and text changes of every editor, fanned out to the toolbar, status bar, and preview (R-028). */
+  private readonly activity = new EditorActivityHub();
+  /** Exports and imports the user started; the toolbar edge flows while one runs (R-028). */
+  readonly jobs = new JobTracker();
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    this.applyUiLanguage();
     await unpackBundledAssets(this);
 
     this.gateway = createFileGateway(this.app, this);
@@ -280,17 +362,31 @@ export default class HanmarkPlugin extends Plugin {
       }
     });
     await this.wordTemplateStore.ensureDefaultTemplate(createDefaultWordTemplate());
+    this.refreshWordTemplateLabel();
     this.docxExporter = new DocxExportService({
       app: this.app,
       pluginId: this.manifest.id,
       fileGateway: this.gateway,
       templateStore: this.wordTemplateStore,
-      getPandocPath: () => this.settings.pandocPath
+      getPandocPath: () => this.settings.pandocPath,
+      getOutputLanguage: () => this.settings.outputLanguage,
+      prepareMarkdown: async (body, sourcePath) => {
+        if (!sourcePath) return body;
+        const prepared = await prepareExportMarkdown(createVaultAssemblyHost(this.app), body, sourcePath, {
+          assembleEmbeds: this.settings.assembleEmbeds,
+          outputLanguage: this.settings.outputLanguage
+        });
+        const notice = assemblyNotice(prepared.warnings);
+        if (notice) new Notice(notice, 8_000);
+        return prepared.markdown;
+      }
     });
 
     this.registerViews();
     this.registerCommands();
     registerEditorCompatibilityCommands(this);
+    this.registerEditorExtension(this.activity.extension);
+    this.followVaultChanges();
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         if (leaf?.view instanceof MarkdownView && leaf.view.file) {
@@ -300,11 +396,13 @@ export default class HanmarkPlugin extends Plugin {
     );
     const initialMarkdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (initialMarkdownView?.file) this.lastMarkdownView = initialMarkdownView;
+    this.installStatusBar();
+    this.installStartPanels();
 
     this.toolbar = new ToolbarController(
       this,
       {
-        importDocument: () => void importDocument(this.app, this),
+        importDocument: () => this.openImportModal(),
         openHwpxExport: () => this.openExportCenter("hwpx"),
         openDocxExport: () => this.openExportCenter("docx"),
         openHtmlExport: () => this.openExportCenter("html"),
@@ -316,7 +414,13 @@ export default class HanmarkPlugin extends Plugin {
         openWordTemplateEditor: () => this.openWordTemplateManager()
       },
       this.settings.showToolbarOnStartup,
-      () => this.settings
+      () => this.settings,
+      {
+        persist: () => this.saveSettings(),
+        currentMarkdownView: () => this.currentMarkdownView(),
+        activity: this.activity,
+        jobs: this.jobs
+      }
     );
     this.toolbar.initialize();
 
@@ -334,23 +438,183 @@ export default class HanmarkPlugin extends Plugin {
             this.settings.editorialPdfThemeLibrary
           ),
         refreshPreviews: () => this.refreshPreviews(),
-        refreshToolbar: () =>
-          this.toolbar?.setVisible(this.settings.showToolbarOnStartup)
+        refreshPreviewControls: () => this.refreshPreviewControls(),
+        refreshStatusBar: () => this.statusBar?.refresh(),
+        refreshStartPanels: () => this.startPanels?.sync(),
+        refreshToolbar: () => {
+          this.toolbar?.setVisible(this.settings.showToolbarOnStartup);
+          this.toolbar?.refreshSettings();
+        },
+        applyUiLanguage: () => this.applyUiLanguage()
       }
     );
     this.addSettingTab(this.settingTab);
 
-    this.addRibbonIcon("panel-top", "HanMark 툴바 표시·숨기기", () => {
+    this.addRibbonIcon("panel-top", t("ribbon.toggleToolbar"), () => {
       const visible = this.toolbar?.toggle() ?? false;
       this.settings.showToolbarOnStartup = visible;
       void this.saveSettings();
     });
-    this.addRibbonIcon("file-output", "HanMark 내보내기", () => {
+    this.addRibbonIcon("file-input", t("ribbon.import"), () => {
+      this.openImportModal();
+    });
+    this.addRibbonIcon("file-output", t("ribbon.export"), () => {
       this.openExportCenter("hwpx");
+    });
+    this.registerImportMenus();
+  }
+
+  /** The import window (command, ribbon, toolbar). */
+  openImportModal(inputs: ImportInput[] = []): void {
+    new ImportModal(this.importHost(), inputs).open();
+  }
+
+  private importHost(): ImportHost {
+    return {
+      app: this.app,
+      gateway: this.gateway,
+      defaultPreset: () => this.settings.importPreset,
+      folderFor: (input) => this.importFolderFor(input),
+      confirmEachImport: () => this.settings.importDestination.mode === "ask",
+      cloudSettings: () => importCloudSettings(this),
+      reveal: Platform.isDesktopApp ? (path) => this.revealVaultNote(path) : undefined,
+      trackJob: () => this.jobs.begin()
+    };
+  }
+
+  /** Destination policy: fixed folder, else next to a Vault original, else the open note's folder. */
+  private importFolderFor(input?: ImportInput): string {
+    const destination = this.settings.importDestination;
+    if (destination.mode === "folder") return destination.folder;
+    if (input?.vaultPath) return input.vaultPath.split("/").slice(0, -1).join("/");
+    const parent = this.app.workspace.getActiveFile()?.parent?.path;
+    return parent && parent !== "/" ? parent : "";
+  }
+
+  /** File explorer: "Convert to Markdown note" on documents, "View in HanMark" on HWP/HWPX. */
+  private registerImportMenus(): void {
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (!(file instanceof TFile) || !isImportableExtension(file.extension)) return;
+        menu.addItem((item) =>
+          item
+            .setTitle(t("menu.convertToNote"))
+            .setIcon("file-input")
+            .onClick(() => void importVaultFiles(this.importHost(), [file]))
+        );
+        if (HANGUL_DOCUMENT_EXTENSIONS.includes(file.extension.toLowerCase())) {
+          menu.addItem((item) =>
+            item
+              .setTitle(t("menu.viewInHanmark"))
+              .setIcon("file-text")
+              .onClick(() => void this.openDocumentView(file))
+          );
+        }
+        menu.addItem((item) =>
+          item
+            .setTitle(t("menu.compare"))
+            .setIcon("git-compare")
+            .onClick(() => this.openCompare(file))
+        );
+        if (file.extension.toLowerCase() === "hwpx") {
+          menu.addItem((item) =>
+            item
+              .setTitle(t("menu.formNote"))
+              .setIcon("clipboard-list")
+              .onClick(() => void createFormNoteFromFile(this.formHost(), file))
+          );
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("files-menu", (menu, files) => {
+        const documents = files.filter(
+          (file): file is TFile => file instanceof TFile && isImportableExtension(file.extension)
+        );
+        if (!documents.length) return;
+        menu.addItem((item) =>
+          item
+            .setTitle(t("menu.convertManyToNotes", { count: documents.length }))
+            .setIcon("file-input")
+            .onClick(() => void importVaultFiles(this.importHost(), documents))
+        );
+      })
+    );
+  }
+
+  private compareHost(): CompareHost {
+    return {
+      app: this.app,
+      gateway: this.gateway,
+      folderFor: (source) => this.importFolderFor(source),
+      outputLanguage: () => this.settings.outputLanguage
+    };
+  }
+
+  /** Old–new comparison of two documents; `first` preselects the current version. */
+  openCompare(first?: TFile): void {
+    new CompareModal(this.compareHost(), first).open();
+  }
+
+  private formHost(): FormHost {
+    return {
+      app: this.app,
+      gateway: this.gateway,
+      defaultFolder: () => this.importFolderFor(),
+      outputLanguage: () => this.settings.outputLanguage,
+      openDocument: (file) => this.openDocumentView(file)
+    };
+  }
+
+  private async openDocumentView(file: TFile): Promise<void> {
+    await this.app.workspace.getLeaf(true).setViewState({
+      type: HANMARK_DOCUMENT_VIEW,
+      state: { file: file.path },
+      active: true
     });
   }
 
+  /** Note assembly for HTML and PDF; DOCX and HWPX run the same step internally. */
+  private async prepareExportBody(file: TFile, body: string): Promise<string> {
+    const prepared = await prepareExportMarkdown(createVaultAssemblyHost(this.app), body, file.path, {
+      assembleEmbeds: this.settings.assembleEmbeds,
+      outputLanguage: this.settings.outputLanguage
+    });
+    const notice = assemblyNotice(prepared.warnings);
+    if (notice) new Notice(notice, 8_000);
+    return prepared.markdown;
+  }
+
+  private async revealVaultNote(vaultPath: string): Promise<void> {
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) throw new Error(t("reveal.unavailable"));
+    const output = trustSavedVaultOutput({ status: "saved", vaultPath });
+    if (!output) throw new Error(t("reveal.unavailable"));
+    await revealVaultOutputUserInitiated(
+      {
+        output,
+        platform: runtimePlatform(),
+        resolveVaultPath: (path) => adapter.getFullPath(path)
+      },
+      createUserInitiatedAction("modal")
+    );
+  }
+
+  private async openWithDefaultApp(file: TFile): Promise<void> {
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) throw new Error(t("reveal.unavailable"));
+    await openVaultDocumentUserInitiated(
+      {
+        vaultPath: file.path,
+        platform: runtimePlatform(),
+        resolveVaultPath: (path) => adapter.getFullPath(path)
+      },
+      createUserInitiatedAction("toolbar")
+    );
+  }
+
   onunload(): void {
+    this.activity.dispose();
     this.editorialPdf.dispose();
     this.toolbar?.destroy();
     this.toolbar = null;
@@ -365,6 +629,15 @@ export default class HanmarkPlugin extends Plugin {
   async saveSettings(): Promise<void> {
     this.settings = normalizeHanmarkSettings(this.settings, runtimePlatform());
     await this.saveData(this.settings);
+  }
+
+  /**
+   * Resolves the interface language from the setting and Obsidian's language. New
+   * windows and notices switch at once; command names and ribbon tooltips were
+   * registered at load time and switch after a restart.
+   */
+  applyUiLanguage(): void {
+    setUiLocale(resolveUiLocale(this.settings.uiLanguage, obsidianLanguage()));
   }
 
   private async loadSettings(): Promise<void> {
@@ -389,13 +662,39 @@ export default class HanmarkPlugin extends Plugin {
     this.registerView(
       QUICK_HWPX_PREVIEW_VIEW,
       (leaf: WorkspaceLeaf) =>
-        new QuickHwpxPreviewView(
-          leaf,
-          () => activeTableProfile(this),
-          () => activeDocumentStyle(this),
-          () => this.currentMarkdownView(),
-          () => this.settings.enableLivePreview
-        )
+        new QuickHwpxPreviewView(leaf, {
+          profile: () => activeTableProfile(this),
+          documentStyle: () => activeDocumentStyle(this),
+          fontRules: () => templateFontSubstitutions(this),
+          sourceView: () => this.currentMarkdownView(),
+          livePreviewEnabled: () => this.settings.enableLivePreview,
+          autoPauseEnabled: () => this.settings.previewAutoPause,
+          outputLanguage: () => this.settings.outputLanguage,
+          assembleEmbeds: () => this.settings.assembleEmbeds,
+          gongmunPlan: (file, preset, formId) => planGongmunExport(this.app, file, this, preset, formId),
+          gongmunForms: () => listGongmunForms(this),
+          currentGongmunForm: (file) => this.currentGongmunForm(file),
+          selectGongmunForm: (id, file) => this.selectGongmunForm(id, file),
+          rememberMode: (kind) => this.rememberPreviewMode(kind),
+          subscribeActivity: (listener, delay) => this.activity.subscribe(listener, delay),
+          followCursor: () => this.settings.previewFollowCursor,
+          setFollowCursor: (on) => this.setPreviewFollow(on),
+          exportHwpx: async (mode) => {
+            const note = this.currentMarkdownView()?.file?.path;
+            const outcome = await this.jobs.run(() =>
+              exportKordocHwpxWithOutcome(
+                this.app,
+                this,
+                mode.kind === "quick"
+                  ? { mode: "quick-hwpx" }
+                  : { mode: "gongmun-hwpx", gongmunPreset: mode.preset, gongmunFormId: mode.formId },
+                true
+              )
+            );
+            await this.afterExport(outcome, mode.kind === "gongmun" ? mode.formId : undefined, note);
+            return outcome?.status === "saved";
+          }
+        })
     );
     this.registerView(
       DOCX_PREVIEW_VIEW_TYPE,
@@ -410,40 +709,95 @@ export default class HanmarkPlugin extends Plugin {
           },
           getSource: () => this.currentDocxSource(),
           preparePreviewFonts: (target) =>
-            this.wordFontCatalog.applyPreviewFonts(target)
+            this.wordFontCatalog.applyPreviewFonts(target),
+          onSaved: (saved) =>
+            void this.afterExport({ format: "docx", status: "saved", vaultPath: saved.vaultPath }),
+          subscribeActivity: (listener, delay) => this.activity.subscribe(listener, delay),
+          followCursor: () => this.settings.previewFollowCursor,
+          setFollowCursor: (on) => this.setPreviewFollow(on)
         })
     );
+    this.registerView(
+      HANMARK_DOCUMENT_VIEW,
+      (leaf: WorkspaceLeaf) =>
+        new HanmarkDocumentView(leaf, {
+          convertToNote: (file) => importVaultFiles(this.importHost(), [file]),
+          compare: (file) => this.openCompare(file),
+          formNote: (file) => createFormNoteFromFile(this.formHost(), file),
+          openWithDefaultApp: Platform.isDesktopApp ? (file) => this.openWithDefaultApp(file) : undefined
+        })
+    );
+    if (this.settings.openHangulFilesInHanmark) {
+      try {
+        this.registerExtensions([...HANGUL_DOCUMENT_EXTENSIONS], HANMARK_DOCUMENT_VIEW);
+      } catch {
+        // Another plugin already opens these extensions; "View in HanMark" in the
+        // file menu still works.
+      }
+    }
   }
 
   private registerCommands(): void {
     this.addCommand({
       id: "import-hwp-document",
-      name: "문서 불러오기 (HWP/HWPX/PDF/DOCX/XLS/XLSX → Markdown)",
-      callback: () => void importDocument(this.app, this)
+      name: t("command.import"),
+      callback: () => this.openImportModal()
+    });
+    this.addCommand({
+      id: "compare-documents",
+      name: t("command.compare"),
+      callback: () => this.openCompare()
+    });
+    this.addCommand({
+      id: "form-note-from-hwpx",
+      name: t("command.formNote"),
+      callback: () => pickFormAndCreateNote(this.formHost(), this.currentMarkdownView()?.file?.path)
+    });
+    this.addCommand({
+      id: "form-note-from-builtin",
+      name: t("command.formBuiltin"),
+      callback: () => createFormNoteFromBuiltin(this.formHost())
+    });
+    this.addCommand({
+      id: "fill-form",
+      name: t("command.fillForm"),
+      checkCallback: (checking) => {
+        const view = this.currentMarkdownView();
+        const file = view?.file;
+        const linked = file ? Boolean(this.app.metadataCache.getFileCache(file)?.frontmatter?.[FORM_LINK_KEY]) : false;
+        if (!linked) return false;
+        if (!checking) void fillFormFromNote(this.formHost(), view);
+        return true;
+      }
     });
     this.addCommand({
       id: "open-export-center",
-      name: "내보내기",
+      name: t("command.openExportCenter"),
       callback: () => this.openExportCenter("hwpx")
     });
     this.addCommand({
       id: "save-hwp-roundtrip",
-      name: "한글로 다시 내보내기",
+      name: t("command.exportToHangul"),
       callback: () => this.openExportCenter("hwpx")
     });
     this.addCommand({
       id: "quick-export-hwpx",
-      name: "빠른 HWPX 내보내기 (설치 불필요)",
-      callback: () => void exportKordocHwpx(this.app, this, { mode: "quick-hwpx" })
+      name: t("command.quickExportHwpx"),
+      callback: () =>
+        void this.jobs.run(async () => {
+          const outcome = await exportKordocHwpxWithOutcome(this.app, this, { mode: "quick-hwpx" }, true);
+          await this.afterExport(outcome);
+          return outcome;
+        })
     });
     this.addCommand({
       id: "gongmun-export-hwpx",
-      name: "공문서 HWPX 내보내기",
-      callback: () => this.openExportCenter("hwpx")
+      name: t("command.exportGongmun"),
+      callback: () => this.openExportCenter("hwpx", "gongmun")
     });
     this.addCommand({
       id: "patch-hwp-experimental",
-      name: "고급·레거시: 원본 형식 보존 수정본 만들기",
+      name: t("command.patchOriginal"),
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         const contract = file ? readSourceContract(this.app, file) : null;
@@ -458,7 +812,7 @@ export default class HanmarkPlugin extends Plugin {
     });
     this.addCommand({
       id: "create-clean-markdown-copy",
-      name: "레거시 가져오기 노트를 일반 Markdown 사본으로 만들기",
+      name: t("command.cleanLegacyCopy"),
       checkCallback: (checking) => {
         const view = this.currentMarkdownView();
         const available = Boolean(
@@ -472,22 +826,22 @@ export default class HanmarkPlugin extends Plugin {
     });
     this.addCommand({
       id: "quick-hwpx-preview",
-      name: "빠른 HWPX 미리보기 열기·닫기",
+      name: t("command.toggleQuickPreview"),
       callback: () => void this.toggleQuickPreview()
     });
     this.addCommand({
       id: "manage-hwpx-templates",
-      name: "HWPX 템플릿 관리",
+      name: t("command.manageHwpxTemplates"),
       callback: () => this.openTemplateManager()
     });
     this.addCommand({
       id: "import-document-style",
-      name: "HWPX를 사용자 템플릿으로 가져오기",
+      name: t("command.importHwpxTemplate"),
       callback: () => void this.importDocumentStyleAndRefresh()
     });
     this.addCommand({
       id: "edit-document-style",
-      name: "현재 HWPX 템플릿 편집",
+      name: t("command.editHwpxTemplate"),
       callback: () => this.openDocumentStyleEditor()
     });
 
@@ -495,77 +849,109 @@ export default class HanmarkPlugin extends Plugin {
     // configurations keep working after the legacy bundle is removed.
     this.addCommand({
       id: "export-hwpx",
-      name: "HWPX 내보내기",
+      name: t("command.exportHwpx"),
       callback: () => this.openExportCenter("hwpx")
     });
     this.addCommand({
       id: "export-docx",
-      name: "DOCX 내보내기",
+      name: t("command.exportDocx"),
       callback: () => this.openExportCenter("docx")
     });
     this.addCommand({
       id: "export-html",
-      name: "HTML 내보내기",
+      name: t("command.exportHtml"),
       callback: () => this.openExportCenter("html")
     });
     this.addCommand({
       id: "export-pdf",
-      name: "PDF 내보내기",
+      name: t("command.exportPdf"),
       callback: () => this.openExportCenter("pdf")
     });
     this.addCommand({
       id: "select-template",
-      name: "HWPX 템플릿 관리",
+      name: t("command.manageHwpxTemplates"),
       callback: () => this.openTemplateManager()
     });
     this.addCommand({
       id: "select-hwpx-template",
-      name: "HWPX 템플릿 관리",
+      name: t("command.manageHwpxTemplates"),
       callback: () => this.openTemplateManager()
     });
     this.addCommand({
       id: "show-setup-guide",
-      name: "DOCX·Pandoc 설정",
+      name: t("command.docxSettings"),
       callback: () => this.openPluginSettings()
     });
     this.addCommand({
       id: "toggle-preview",
-      name: "빠른 HWPX 미리보기 열기·닫기",
+      name: t("command.toggleQuickPreview"),
       callback: () => void this.toggleQuickPreview()
     });
     this.addCommand({
       id: "toggle-hwp-preview",
-      name: "빠른 HWPX 미리보기 열기·닫기",
+      name: t("command.toggleQuickPreview"),
       callback: () => void this.toggleQuickPreview()
     });
     this.addCommand({
       id: "toggle-docx-preview",
-      name: "DOCX 미리보기 열기·닫기",
+      name: t("command.toggleDocxPreview"),
       callback: () => void this.toggleDocxPreview()
     });
     this.addCommand({
       id: "open-word-template-editor",
-      name: "Word 템플릿 관리",
+      name: t("command.manageWordTemplates"),
       callback: () => this.openWordTemplateManager()
     });
     this.addCommand({
       id: "toggle-toolbar",
-      name: "도구 모음 표시·숨기기",
+      name: t("command.toggleToolbar"),
       callback: () => {
         const visible = this.toolbar?.toggle() ?? false;
         this.settings.showToolbarOnStartup = visible;
         void this.saveSettings();
       }
     });
+    this.addCommand({
+      id: "gongmun-export-all-forms",
+      name: t("command.gongmunExportAllForms"),
+      callback: () => void this.openGongmunBatch()
+    });
+    this.addCommand({
+      id: "toggle-toolbar-collapse",
+      name: t("command.toggleToolbarCollapse"),
+      callback: () => this.toolbar?.toggleCollapsed()
+    });
     for (let level = 1; level <= 6; level += 1) registerHeadingCommand(this, level);
     this.addCommand({
       id: "set-paragraph",
-      name: "본문 문단 적용",
+      name: t("command.setParagraph"),
       editorCallback: (editor) => editorFormatting.setParagraph(editor)
     });
   }
 
-  private openExportCenter(initialFormat: HanmarkExportFormat): void {
+  /** Reads the active Word template's name in the background (the store is asynchronous). */
+  private refreshWordTemplateLabel(): void {
+    const id = this.settings.activeWordTemplateId;
+    if (id === "default") return;
+    void this.wordTemplateStore
+      .readActiveTemplate()
+      .then((template) => {
+        this.wordTemplateLabel = { id: template.id, name: template.name };
+      })
+      .catch(() => {
+        this.wordTemplateLabel = null;
+      });
+  }
+
+  /** Never shows the internal id: the built-in name, the stored name, or a generic label. */
+  private activeWordTemplateName(): string {
+    const id = this.settings.activeWordTemplateId;
+    if (id === "default") return t("exportFlow.defaultWordTemplate");
+    return this.wordTemplateLabel?.id === id ? this.wordTemplateLabel.name : t("export.docx.currentTemplate");
+  }
+
+  private openExportCenter(initialFormat: HanmarkExportFormat, initialVariant: HwpxExportVariant = "quick"): void {
+    this.refreshWordTemplateLabel();
     new HanmarkExportModal(
       this.app,
       {
@@ -574,11 +960,15 @@ export default class HanmarkPlugin extends Plugin {
           availableDocumentTemplates(this).map(({ id, name }) => ({ id, name })),
         activeTemplateSummary: () => {
           const template = activeDocumentTemplate(this);
-          const kind = template.builtIn ? "내장" : "사용자";
-          const style = template.documentStyle ? "문서 스타일 포함" : "Kordoc 기본";
+          const kind = template.builtIn
+            ? t("exportFlow.template.builtIn")
+            : t("exportFlow.template.custom");
+          const style = template.documentStyle
+            ? t("exportFlow.template.withStyle")
+            : t("exportFlow.template.kordocDefault");
           const tables = template.tableStyle?.tables?.length
-            ? `표 스타일 ${template.tableStyle.tables.length}개`
-            : "표 스타일 없음";
+            ? t("exportFlow.template.tableStyles", { count: template.tableStyle.tables.length })
+            : t("exportFlow.template.noTableStyles");
           return `${kind} · ${style} · ${tables}`;
         },
         selectTemplate: async (id) => {
@@ -586,18 +976,26 @@ export default class HanmarkPlugin extends Plugin {
           this.refreshPreviews();
         },
         openTemplateManager: () => this.openTemplateManager(),
-        exportKordoc: (mode, preset) =>
-          exportKordocHwpxWithOutcome(this.app, this, {
-            mode,
-            gongmunPreset: preset
+        exportKordoc: (mode, preset, formId) =>
+          this.jobs.run(async () => {
+            const note = this.currentMarkdownView()?.file?.path;
+            const outcome = await exportKordocHwpxWithOutcome(this.app, this, {
+              mode,
+              gongmunPreset: preset,
+              gongmunFormId: mode === "gongmun-hwpx" ? formId : undefined
+            });
+            await this.afterExport(outcome, mode === "gongmun-hwpx" ? formId : undefined, note);
+            return outcome;
           }),
-        runOther: (mode) => this.runOtherExport(mode),
-        openPreview: () => this.toggleQuickPreview(false),
+        runOther: (mode) =>
+          this.jobs.run(async () => {
+            const outcome = await this.runOtherExport(mode);
+            await this.afterExport(outcome);
+            return outcome;
+          }),
+        openPreview: () => this.toggleQuickPreview(false, { kind: "quick" }),
         openDocxPreview: () => this.toggleDocxPreview(false),
-        activeWordTemplateName: () =>
-          this.settings.activeWordTemplateId === "default"
-            ? "HanMark 기본 Word 템플릿"
-            : this.settings.activeWordTemplateId,
+        activeWordTemplateName: () => this.activeWordTemplateName(),
         openPandocSettings: () => this.openPluginSettings(),
         activeHtmlTheme: () => this.settings.htmlExportTheme,
         setHtmlTheme: async (theme) => {
@@ -629,7 +1027,7 @@ export default class HanmarkPlugin extends Plugin {
         openPdfThemeManager: (mode) =>
           this.openEditorialPdfThemeManager(mode),
         activePdfLayout: () => normalizeEditorialPdfLayout(this.settings.editorialPdfLayout),
-        exportPdf: async (layout, nativePrint) => this.exportEditorialPdf(layout, nativePrint),
+        exportPdf: async (layout, nativePrint) => this.jobs.run(() => this.exportEditorialPdf(layout, nativePrint)),
         savePdf: async (prepared) => {
           const saved = await this.gateway.saveFile(prepared.bytes, prepared.fileName);
           return {
@@ -640,10 +1038,217 @@ export default class HanmarkPlugin extends Plugin {
           };
         },
         revealOutput: (outcome) => this.revealExportOutput(outcome),
+        gongmunForms: () => listGongmunForms(this),
+        currentGongmunForm: () => this.currentGongmunForm(this.currentMarkdownView()?.file),
+        selectGongmunForm: (id) => this.selectGongmunForm(id),
+        editGongmunForm: (id, preset, changed) => this.openGongmunStyle(id, changed, preset),
+        notePresetHint: () => notePresetHint(this.app, this.currentMarkdownView()?.file),
+        insertGongmunProperties: (preset) => this.insertGongmunProperties(preset),
+        lintGongmun: (preset) => this.openGongmunLint(preset),
+        openGongmunPreview: (preset, formId) => this.toggleQuickPreview(false, { kind: "gongmun", preset, formId }),
+        openGongmunBatch: () => void this.openGongmunBatch(),
         applySkin: (root) => applyToolbarSkin(root, this.settings)
       },
-      initialFormat
+      initialFormat,
+      initialVariant
     ).open();
+  }
+
+  private openGongmunStyle(id: string | null, changed: (activeId: string) => void = () => {}, initialPreset?: GongmunPreset): void {
+    new GongmunStyleModal(
+      this.app,
+      {
+        templateHost: this,
+        gateway: this.gateway,
+        changed: (activeId) => {
+          changed(activeId);
+          this.refreshPreviews();
+        }
+      },
+      id,
+      initialPreset
+    ).open();
+  }
+
+  /**
+   * The official-document form a note starts with: the form last chosen for this note
+   * (R-028) while it still exists, else the active institution form, the note's type,
+   * or the last type (R-026).
+   */
+  private currentGongmunForm(file: TFile | null | undefined): string {
+    if (file) {
+      const forms = new Set(listGongmunForms(this).map((form) => form.id));
+      const remembered = rememberedNoteForm(this.settings.gongmunFormByNote, file.path, (id) => forms.has(id));
+      if (remembered) return remembered;
+    }
+    return currentGongmunFormId(this, notePresetHint(this.app, file));
+  }
+
+  /**
+   * Makes a form active everywhere (export window and preview), remembers it for the
+   * note (the given one, else the note being edited), and returns its type.
+   */
+  private async selectGongmunForm(id: string, file?: TFile | null): Promise<GongmunPreset> {
+    const preset = selectGongmunFormInMemory(this, id);
+    const note = file ?? this.currentMarkdownView()?.file;
+    if (note) this.settings.gongmunFormByNote = rememberNoteForm(this.settings.gongmunFormByNote, note.path, id);
+    await this.saveSettings();
+    this.refreshPreviews();
+    this.statusBar?.refresh(false);
+    return preset;
+  }
+
+  /**
+   * After an export: a file HanMark wrote into the vault joins the recent exports, and
+   * an official document remembers its form for the note (R-028).
+   */
+  private async afterExport(outcome: unknown, formId?: string, notePath?: string): Promise<void> {
+    if (!outcome || typeof outcome !== "object") return;
+    const result = outcome as Partial<HanmarkExportOutcome> & { format?: string };
+    if (result.status !== "saved") return;
+    let changed = false;
+    if (result.vaultPath && isRecentExportFormat(result.format)) {
+      this.settings.recentExports = recordRecentExport(this.settings.recentExports, {
+        path: result.vaultPath,
+        format: result.format,
+        at: Date.now()
+      });
+      changed = true;
+    }
+    if (formId && notePath) {
+      this.settings.gongmunFormByNote = rememberNoteForm(this.settings.gongmunFormByNote, notePath, formId);
+      changed = true;
+    }
+    if (changed) {
+      await this.saveSettings();
+      this.startPanels?.sync();
+    }
+  }
+
+  /**
+   * Several forms at once (R-028): one snapshot of the note, each checked form saved
+   * beside it and named after the form; the global and remembered forms stay as they are.
+   */
+  private async openGongmunBatch(): Promise<void> {
+    const snapshot = await readExportSnapshot(this.app, this);
+    if (!snapshot) return;
+    new GongmunBatchModal(this.app, {
+      forms: listGongmunForms(this),
+      currentFormId: this.currentGongmunForm(snapshot.file),
+      noteName: snapshot.file.basename,
+      run: async (forms, hooks) => {
+        const entries = await this.jobs.run(() =>
+          runGongmunBatch(forms, (form, allow) => exportGongmunFormBesideNote(this.app, this, snapshot, form.id, allow), {
+            ...hooks,
+            isImageFailure: (error) => error instanceof ImageResolutionError,
+            decideImageFailures: async (error) =>
+              (await chooseImageFailureAction(this.app, (error as ImageResolutionError).failures)) === "cancel" ? "cancel" : "continue",
+            describeError: (error) => errorMessage(error),
+            onEntry: (entry, index) => {
+              hooks.onEntry?.(entry, index);
+              const path = entry.result?.vaultPath;
+              if (entry.status === "saved" && path) {
+                this.settings.recentExports = recordRecentExport(this.settings.recentExports, { path, format: "hwpx", at: Date.now() });
+              }
+            }
+          })
+        );
+        await this.saveSettings();
+        return entries;
+      },
+      open: (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (file instanceof TFile) void this.app.workspace.getLeaf(true).openFile(file);
+      },
+      reveal: Platform.isDesktopApp ? (path) => this.revealVaultNote(path) : undefined
+    }).open();
+  }
+
+  /** Remembered forms and recent exports follow renamed and deleted notes and folders. */
+  private followVaultChanges(): void {
+    let pending: number | null = null;
+    const saveSoon = (): void => {
+      if (pending !== null) window.clearTimeout(pending);
+      pending = window.setTimeout(() => {
+        pending = null;
+        void this.saveSettings();
+      }, 1000);
+    };
+    const apply = (forms: FormMemory, recent: RecentExport[]): void => {
+      const before = JSON.stringify([this.settings.gongmunFormByNote, this.settings.recentExports]);
+      if (before === JSON.stringify([forms, recent])) return;
+      this.settings.gongmunFormByNote = forms;
+      this.settings.recentExports = recent;
+      saveSoon();
+      this.startPanels?.sync();
+    };
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        apply(
+          renameNotePaths(this.settings.gongmunFormByNote, oldPath, file.path),
+          renameRecentExports(this.settings.recentExports, oldPath, file.path)
+        );
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        apply(
+          forgetNotePaths(this.settings.gongmunFormByNote, file.path),
+          forgetRecentExports(this.settings.recentExports, file.path)
+        );
+      })
+    );
+    this.register(() => {
+      if (pending !== null) window.clearTimeout(pending);
+    });
+  }
+
+  /** The preview opens as it was last used: quick HWPX, or the current official-document form. */
+  private rememberedPreviewMode(): QuickPreviewMode {
+    if (this.settings.hwpxPreviewMode !== "gongmun") return { kind: "quick" };
+    const id = this.currentGongmunForm(this.currentMarkdownView()?.file);
+    const preset = listGongmunForms(this).find((form) => form.id === id)?.preset ?? "report";
+    return { kind: "gongmun", preset, formId: id };
+  }
+
+  private async rememberPreviewMode(kind: QuickPreviewMode["kind"]): Promise<void> {
+    this.statusBar?.refresh(false);
+    if (this.settings.hwpxPreviewMode === kind) return;
+    this.settings.hwpxPreviewMode = kind;
+    await this.saveSettings();
+  }
+
+  /** Adds the empty properties an official-document type uses (never overwrites). */
+  private async insertGongmunProperties(preset: GongmunPreset): Promise<void> {
+    const file = this.currentMarkdownView()?.file;
+    if (!file) {
+      new Notice(t("gongmun.lint.noNote"));
+      return;
+    }
+    const keys = new Set(gongmunPropertyKeysFor(preset));
+    let added = 0;
+    await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+      const presetSpec = GONGMUN_PROPERTIES.find((spec) => spec.key === GONGMUN_PRESET_PROPERTY_KEY);
+      if (!(GONGMUN_PRESET_PROPERTY_KEY in frontmatter) && !(presetSpec && presetSpec.alias in frontmatter)) {
+        frontmatter[GONGMUN_PRESET_PROPERTY_KEY] = GONGMUN_PRESET_KOREAN_NAMES[preset];
+        added += 1;
+      }
+      for (const spec of GONGMUN_PROPERTIES) {
+        if (!keys.has(spec.key) || spec.key in frontmatter || spec.alias in frontmatter) continue;
+        frontmatter[spec.key] = spec.kind === "list" ? [] : "";
+        added += 1;
+      }
+    });
+    new Notice(added ? t("gongmun.export.propertiesInserted", { count: added }) : t("gongmun.export.propertiesAlready"));
+  }
+
+  private openGongmunLint(preset: GongmunPreset): void {
+    const view = this.currentMarkdownView();
+    if (!view?.file) {
+      new Notice(t("gongmun.lint.noNote"));
+      return;
+    }
+    new GongmunLintModal(this.app, view.editor, preset).open();
   }
 
   private openEditorialPdfThemeManager(
@@ -678,18 +1283,18 @@ export default class HanmarkPlugin extends Plugin {
   ): Promise<HanmarkExportOutcome | null> {
     const source = this.currentDocxSource();
     if (!source) {
-      new Notice("내보낼 Markdown 문서를 여세요.");
+      new Notice(t("exportFlow.openNote"));
       return null;
     }
     if (mode === "docx") {
-      const progress = new Notice("Pandoc으로 DOCX를 만드는 중…", 0);
+      const progress = new Notice(t("exportFlow.docx.creating"), 0);
       try {
         const result = await this.docxExporter.exportUserInitiated(
           source,
           createUserInitiatedAction("modal")
         );
         if (!result.saved.cancelled) {
-          new Notice(`DOCX 저장 완료: ${result.saved.displayPath}`);
+          new Notice(t("exportFlow.docx.saved", { path: String(result.saved.displayPath) }));
         }
         return {
           format: "docx",
@@ -699,7 +1304,7 @@ export default class HanmarkPlugin extends Plugin {
           vaultPath: result.saved.vaultPath
         };
       } catch (error) {
-        new Notice(`DOCX 내보내기 실패: ${errorMessage(error)}`, 8_000);
+        new Notice(t("exportFlow.docx.failed", { detail: errorMessage(error) }), 8_000);
         return null;
       } finally {
         progress.hide();
@@ -708,11 +1313,11 @@ export default class HanmarkPlugin extends Plugin {
 
     const view = this.currentMarkdownView();
     if (!view?.file) {
-      new Notice("HTML로 내보낼 Markdown 문서를 여세요.");
+      new Notice(t("exportFlow.html.openNote"));
       return null;
     }
-    const body = extractEditableBodyStrict(source.markdown);
-    const progress = new Notice("HTML 이미지를 독립형 파일에 포함하는 중…", 0);
+    const body = await this.prepareExportBody(view.file, extractEditableBodyStrict(source.markdown));
+    const progress = new Notice(t("exportFlow.html.embedding"), 0);
     try {
       let prepared: Awaited<
         ReturnType<typeof prepareSelfContainedHtmlMarkdown>
@@ -720,16 +1325,18 @@ export default class HanmarkPlugin extends Plugin {
       while (true) {
         prepared = await prepareSelfContainedHtmlMarkdown(body, {
           loader: createObsidianImageLoader(this.app, view.file),
+          outputLanguage: this.settings.outputLanguage,
           onProgress: (imageProgress) => {
+            const counts = { completed: imageProgress.completed, total: imageProgress.total };
             progress.setMessage(
-              `HTML 이미지 처리 중 ${imageProgress.completed}/${
-                imageProgress.total
-              } · ${imageProgress.status === "embedded" ? "포함" : "실패"}`
+              imageProgress.status === "embedded"
+                ? t("exportFlow.html.progressEmbedded", counts)
+                : t("exportFlow.html.progressFailed", counts)
             );
           }
         });
         if (!prepared.failures.length) break;
-        progress.setMessage("일부 이미지를 독립형 HTML에 포함하지 못했습니다.");
+        progress.setMessage(t("exportFlow.html.someMissing"));
         const action = await chooseHtmlImageFailureAction(
           this.app,
           prepared.failures
@@ -738,13 +1345,14 @@ export default class HanmarkPlugin extends Plugin {
           return { format: "html", status: "cancelled" };
         }
         if (action === "continue") break;
-        progress.setMessage("HTML 이미지를 다시 불러오는 중…");
+        progress.setMessage(t("exportFlow.html.retrying"));
       }
-      progress.setMessage("독립형 HTML을 저장하는 중…");
+      progress.setMessage(t("exportFlow.html.saving"));
       const bytes = renderStandaloneHtmlBytes(prepared.markdown, {
         title: source.title,
         documentStyle: activeDocumentStyle(this),
-        theme: this.settings.htmlExportTheme
+        theme: this.settings.htmlExportTheme,
+        language: resolveOutputLocale(this.settings.outputLanguage, prepared.markdown)
       });
       const saved = source.sourcePath
         ? await this.gateway.saveVaultSibling(
@@ -754,20 +1362,20 @@ export default class HanmarkPlugin extends Plugin {
           )
         : await this.gateway.saveFile(bytes, `${source.title}_html.html`);
       if (!saved.cancelled) {
-        new Notice(`HTML 저장 완료: ${saved.displayPath}`);
+        new Notice(t("exportFlow.html.saved", { path: String(saved.displayPath) }));
       }
       const warnings: string[] = [];
       if (prepared.embeddedCount) {
         warnings.push(
-          `이미지 ${prepared.embeddedCount}개 포함${
+          `${t("save.note.images", { count: prepared.embeddedCount })}${
             prepared.embeddedOccurrences > prepared.embeddedCount
-              ? ` (${prepared.embeddedOccurrences}곳 배치)`
+              ? t("preview.quick.imagePlacements", { count: prepared.embeddedOccurrences })
               : ""
           }`
         );
       }
       if (prepared.failures.length) {
-        warnings.push(`이미지 ${prepared.failures.length}개 누락 표시`);
+        warnings.push(t("save.note.imagesMissing", { count: prepared.failures.length }));
       }
       return {
         format: "html",
@@ -788,15 +1396,15 @@ export default class HanmarkPlugin extends Plugin {
   ): Promise<HanmarkExportOutcome | PreparedPdf | null> {
     const view = this.currentMarkdownView();
     if (!view?.file) {
-      new Notice("PDF로 내보낼 Markdown 문서를 여세요.");
+      new Notice(t("exportFlow.pdf.openNote"));
       return null;
     }
-    const body = extractEditableBodyStrict(view.editor.getValue());
     const file = view.file;
+    const body = await this.prepareExportBody(file, extractEditableBodyStrict(view.editor.getValue()));
     const fileName = file.basename;
     const theme = activeEditorialPdfThemeSnapshot(this.settings.editorialPdfThemeLibrary);
     const layoutSnapshot: EditorialPdfLayout = normalizeEditorialPdfLayout(layout);
-    const progress = new Notice("Editorial PDF 이미지를 준비하는 중…", 0);
+    const progress = new Notice(t("exportFlow.pdf.preparingImages"), 0);
     try {
       let prepared: Awaited<
         ReturnType<typeof prepareSelfContainedHtmlMarkdown>
@@ -804,16 +1412,18 @@ export default class HanmarkPlugin extends Plugin {
       while (true) {
         prepared = await prepareSelfContainedHtmlMarkdown(body, {
           loader: createObsidianImageLoader(this.app, file),
+          outputLanguage: this.settings.outputLanguage,
           onProgress: (imageProgress) => {
+            const counts = { completed: imageProgress.completed, total: imageProgress.total };
             progress.setMessage(
-              `PDF 이미지 처리 중 ${imageProgress.completed}/${
-                imageProgress.total
-              } · ${imageProgress.status === "embedded" ? "포함" : "실패"}`
+              imageProgress.status === "embedded"
+                ? t("exportFlow.pdf.progressEmbedded", counts)
+                : t("exportFlow.pdf.progressFailed", counts)
             );
           }
         });
         if (!prepared.failures.length) break;
-        progress.setMessage("일부 이미지를 PDF에 포함하지 못했습니다.");
+        progress.setMessage(t("exportFlow.pdf.someMissing"));
         const action = await choosePdfImageFailureAction(
           this.app,
           prepared.failures
@@ -821,18 +1431,19 @@ export default class HanmarkPlugin extends Plugin {
         if (action === "cancel") {
           return { format: "pdf", status: "cancelled" };
         }
-        progress.setMessage("PDF 이미지를 다시 불러오는 중…");
+        progress.setMessage(t("exportFlow.pdf.retrying"));
       }
-      progress.setMessage(nativePrint ? "Editorial PDF 인쇄 화면을 여는 중…" : "Editorial PDF를 생성하는 중…");
+      progress.setMessage(nativePrint ? t("exportFlow.pdf.openingPrint") : t("exportFlow.pdf.generating"));
       const request = {
         markdown: prepared.markdown,
-        fileName, theme, layout: layoutSnapshot
+        fileName, theme, layout: layoutSnapshot,
+        outputLanguage: this.settings.outputLanguage
       };
       if (nativePrint) return { ...await this.editorialPdf.print(request), delivery: "print" };
       const bytes = await this.editorialPdf.generate(request, createDesktopPdfOutputAdapter());
       return { format: "pdf", status: "ready", fileName: `${fileName}_pdf.pdf`, bytes };
     } catch (error) {
-      new Notice(`PDF 내보내기 실패: ${errorMessage(error)}`, 8_000);
+      new Notice(t("exportFlow.pdf.failed", { detail: errorMessage(error) }), 8_000);
       return null;
     } finally {
       progress.hide();
@@ -853,15 +1464,15 @@ export default class HanmarkPlugin extends Plugin {
     outcome: HanmarkExportOutcome
   ): Promise<void> {
     if (!Platform.isDesktopApp) {
-      throw new Error("파일 위치 보기는 Obsidian 데스크톱 앱에서만 사용할 수 있습니다.");
+      throw new Error(t("exportFlow.reveal.desktopOnly"));
     }
     const adapter = this.app.vault.adapter;
     if (!(adapter instanceof FileSystemAdapter)) {
-      throw new Error("현재 Vault에서는 운영체제 파일 위치를 확인할 수 없습니다.");
+      throw new Error(t("exportFlow.reveal.noFileSystem"));
     }
     const output = trustSavedVaultOutput(outcome);
     if (!output) {
-      throw new Error("Vault 안에 방금 저장한 파일만 위치를 열 수 있습니다.");
+      throw new Error(t("exportFlow.reveal.notSavedInVault"));
     }
     await revealVaultOutputUserInitiated(
       {
@@ -873,22 +1484,30 @@ export default class HanmarkPlugin extends Plugin {
     );
   }
 
-  private async toggleQuickPreview(closeWhenOpen = true): Promise<void> {
+  /**
+   * Opens (or closes) the HWPX preview. Without `mode` it opens as it was last used;
+   * a mode chosen in the export window is remembered for the next time.
+   */
+  private async toggleQuickPreview(closeWhenOpen = true, mode?: QuickPreviewMode): Promise<void> {
+    if (mode) await this.rememberPreviewMode(mode.kind);
+    const target = mode ?? this.rememberedPreviewMode();
     const existing = this.app.workspace.getLeavesOfType(QUICK_HWPX_PREVIEW_VIEW);
     if (existing.length) {
       if (closeWhenOpen) {
         existing.forEach((leaf) => leaf.detach());
       } else {
         this.app.workspace.setActiveLeaf(existing[0], { focus: true });
+        if (existing[0].view instanceof QuickHwpxPreviewView) existing[0].view.setMode(target);
       }
       return;
     }
     const leaf = this.app.workspace.getLeaf("split", "vertical");
     await leaf.setViewState({ type: QUICK_HWPX_PREVIEW_VIEW, active: true });
+    if (leaf.view instanceof QuickHwpxPreviewView) leaf.view.setMode(target);
     this.app.workspace.setActiveLeaf(leaf, { focus: true });
   }
 
-  private currentMarkdownView(): MarkdownView | null {
+  currentMarkdownView(): MarkdownView | null {
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (active?.file) {
       this.lastMarkdownView = active;
@@ -943,15 +1562,102 @@ export default class HanmarkPlugin extends Plugin {
   private async createCleanLegacyMarkdownCopy(): Promise<void> {
     const file = this.app.workspace.getActiveFile();
     if (!file || file.extension.toLowerCase() !== "md") {
-      new Notice("정리할 HanMark 레거시 Markdown 노트를 여세요.");
+      new Notice(t("legacy.openNote"));
       return;
     }
     try {
       const result = await createCleanLegacyImportCopy(this.app, file);
       await this.app.workspace.getLeaf().openFile(result.file);
-      new Notice(`일반 Markdown 사본을 만들었습니다: ${result.file.path}`);
+      new Notice(t("legacy.copyCreated", { path: result.file.path }));
     } catch (error) {
-      new Notice(`일반 Markdown 사본 만들기 실패: ${errorMessage(error)}`);
+      new Notice(t("legacy.copyFailed", { detail: errorMessage(error) }));
+    }
+  }
+
+  /**
+   * The status bar (R-028): the note's character count, recounted after edits and
+   * reused while only the cursor moves, and the note's official-document form.
+   */
+  private installStatusBar(): void {
+    this.statusBar = new HanmarkStatusBar({
+      addItem: () => this.addStatusBarItem(),
+      currentView: () => this.currentMarkdownView(),
+      showCount: () => this.settings.statusCharCount,
+      showForm: () => this.settings.statusGongmunForm,
+      forms: () => listGongmunForms(this),
+      formFor: (file) => this.statusFormFor(file),
+      selectForm: async (id, file) => {
+        await this.selectGongmunForm(id, file);
+      }
+    });
+    this.register(
+      this.activity.subscribe((activity) => {
+        if (activity.view && activity.view === this.currentMarkdownView()) this.statusBar?.refresh(activity.docChanged);
+      }, 250)
+    );
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.statusBar?.refresh()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.statusBar?.refresh()));
+    this.registerEvent(
+      this.app.metadataCache.on("changed", (file) => {
+        if (file === this.currentMarkdownView()?.file) this.statusBar?.refresh(false);
+      })
+    );
+  }
+
+  /** HanMark's section on empty tabs: import, a new note, and recent exports (R-028). */
+  private installStartPanels(): void {
+    const panels = new StartPanels({
+      app: this.app,
+      enabled: () => this.settings.showStartPanel,
+      recentExports: () => this.settings.recentExports,
+      importDocument: () => this.openImportModal(),
+      newNote: () => {
+        this.executeCommandById("file-explorer:new-file");
+      },
+      openHwpx: (file, leaf) =>
+        void leaf.setViewState({ type: HANMARK_DOCUMENT_VIEW, state: { file: file.path }, active: true }),
+      reveal: Platform.isDesktopApp
+        ? (path) => {
+            void this.revealVaultNote(path).catch((error: unknown) => new Notice(errorMessage(error)));
+          }
+        : undefined
+    });
+    this.startPanels = panels;
+    const sync = (): void => panels.sync();
+    this.app.workspace.onLayoutReady(sync);
+    this.registerEvent(this.app.workspace.on("layout-change", sync));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", sync));
+    this.register(() => panels.removeAll());
+  }
+
+  /**
+   * The form for the status bar, only for a note with an official-document context: a
+   * form remembered for it, a document-type property, or a preview showing a form.
+   */
+  private statusFormFor(file: TFile): string | null {
+    const known = new Set(listGongmunForms(this).map((form) => form.id));
+    const remembered = rememberedNoteForm(this.settings.gongmunFormByNote, file.path, (id) => known.has(id));
+    const previewing = this.app.workspace
+      .getLeavesOfType(QUICK_HWPX_PREVIEW_VIEW)
+      .some((leaf) => leaf.view instanceof QuickHwpxPreviewView && leaf.view.showsForm());
+    if (!remembered && !notePresetHint(this.app, file) && !previewing) return null;
+    return this.currentGongmunForm(file);
+  }
+
+  /** Turns following the cursor on or off for every preview (R-028). */
+  private async setPreviewFollow(on: boolean): Promise<void> {
+    this.settings.previewFollowCursor = on;
+    await this.saveSettings();
+    this.refreshPreviewControls();
+  }
+
+  /** Redraws the previews' navigation rows without redrawing the previews. */
+  private refreshPreviewControls(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(QUICK_HWPX_PREVIEW_VIEW)) {
+      if (leaf.view instanceof QuickHwpxPreviewView) leaf.view.refreshControls();
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(DOCX_PREVIEW_VIEW_TYPE)) {
+      if (leaf.view instanceof DocxPreviewView) leaf.view.refreshControls();
     }
   }
 
@@ -975,11 +1681,15 @@ export default class HanmarkPlugin extends Plugin {
     }
   }
 
-  private openDocumentStyleEditor(
-    profile: DocumentStyleProfile =
-      activeDocumentStyle(this) ?? defaultDocumentStyleProfile()
-  ): void {
-    new DocumentStyleModal(this.app, profile, async (savedProfile) => {
+  /** Opens the style editor on `profile`, or on the active template under its displayed name. */
+  private openDocumentStyleEditor(profile?: DocumentStyleProfile): void {
+    const active = activeDocumentTemplate(this);
+    const name = templateDisplayName(active);
+    const initial = profile ?? editableDocumentStyle({
+      name,
+      documentStyle: active.documentStyle && { ...active.documentStyle, name }
+    });
+    new DocumentStyleModal(this.app, initial, async (savedProfile) => {
       await saveDocumentStyle(this, savedProfile);
       this.refreshPreviews();
       this.settingTab?.refresh();
@@ -994,7 +1704,8 @@ export default class HanmarkPlugin extends Plugin {
       () => {
         this.refreshPreviews();
         this.settingTab?.refresh();
-      }
+      },
+      this.gateway
     ).open();
   }
 

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
+import { keysForText, showsText } from "./helpers/uiText";
+
+/** Source pattern for a UI text: its Korean literal, or `t("key")` for a key with that Korean text. */
+function uiTextSource(text: string): string {
+  const escape = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const literal = `"${escape(text)}"`;
+  const keys = keysForText(new RegExp(`^${escape(text)}$`, "u"));
+  return keys.length ? `(?:${literal}|t\\("(?:${keys.map(escape).join("|")})"\\))` : literal;
+}
 
 async function exportSources(): Promise<{
   modal: string;
@@ -30,7 +39,7 @@ describe("HanMark unified export center", () => {
     for (const [format, microcopy] of cards) {
       assert.match(modal, new RegExp(`id: "${format}"`, "u"));
       assert.ok(
-        modal.includes(microcopy),
+        showsText(modal, new RegExp(microcopy.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u")),
         `${format} card must retain its user-facing microcopy`
       );
     }
@@ -71,18 +80,9 @@ describe("HanMark unified export center", () => {
     assert.match(pdf, /@bottom-right/u);
     assert.match(pdf, /view\.print\(\)/u);
     assert.doesNotMatch(pdf, /!important/u);
-    assert.match(
-      modal,
-      /A4 첫 장은 여백 없는 52\/48 HanMark Editorial 표지로 구성하고/u
-    );
-    assert.match(
-      modal,
-      /2쪽부터 브랜드 머리말·청록 실선·푸터·페이지 번호와 함께/u
-    );
-    assert.match(
-      modal,
-      /이미지와 글꼴을 준비해 PDF를 생성합니다./u
-    );
+    assert.ok(showsText(modal, /A4 첫 장은 여백 없는 52\/48 HanMark Editorial 표지로 구성하고/u));
+    assert.ok(showsText(modal, /2쪽부터 브랜드 머리말·청록 실선·푸터·페이지 번호와 함께/u));
+    assert.ok(showsText(modal, /이미지와 글꼴을 준비해 PDF를 생성합니다./u));
     assert.match(
       modal,
       /if \(this\.nativePdfPrint\) super\.close\(\);[\s\S]{0,120}?this\.actions\.exportPdf/u
@@ -110,7 +110,7 @@ describe("HanMark unified export center", () => {
       assert.match(
         toolbar,
         new RegExp(
-          `label: "${label} 내보내기",[\\s\\S]{0,180}?action: this\\.actions\\.${action}`,
+          `label: ${uiTextSource(`${label} 내보내기`)},[\\s\\S]{0,180}?action: this\\.actions\\.${action}`,
           "u"
         )
       );
@@ -127,7 +127,10 @@ describe("HanMark unified export center", () => {
     );
     assert.match(
       toolbar,
-      /icon: "printer",[\s\S]{0,120}?label: "PDF 내보내기",[\s\S]{0,120}?text: "PDF"/u
+      new RegExp(
+        `icon: "printer",[\\s\\S]{0,120}?label: ${uiTextSource("PDF 내보내기")},[\\s\\S]{0,120}?text: "PDF"`,
+        "u"
+      )
     );
     assert.match(
       toolbar,
@@ -150,9 +153,10 @@ describe("HanMark unified export center", () => {
       resultBlock,
       /result\.status === "saved"\s*&&\s*result\.vaultPath\s*&&\s*this\.actions\.revealOutput/u
     );
-    assert.match(resultBlock, /text: "파일 위치 보기"/u);
+    assert.match(resultBlock, /text: t\("export\.result\.reveal"\)/u);
+    assert.ok(showsText(resultBlock, /파일 위치 보기/u));
     assert.equal(
-      (modal.match(/text: "파일 위치 보기"/gu) ?? []).length,
+      (modal.match(/"export\.result\.reveal"/gu) ?? []).length,
       1,
       "the reveal control must not be rendered outside the guarded result panel"
     );
@@ -216,9 +220,9 @@ describe("HanMark unified export center", () => {
     assert.match(main, /createObsidianImageLoader\(this\.app, view\.file\)/u);
     assert.match(main, /theme: this\.settings\.htmlExportTheme/u);
     assert.match(main, /"retry" \| "continue" \| "cancel"/u);
-    assert.match(main, /실패한 외부 주소는 HTML에 남지 않습니다/u);
-    assert.match(modal, /Achmage Editorial \(권장\)/u);
-    assert.match(modal, /Classic \(기존 스타일\)/u);
+    assert.ok(showsText(main, /실패한 외부 주소는 HTML에 남지 않습니다/u));
+    assert.ok(showsText(modal, /Achmage Editorial \(권장\)/u));
+    assert.ok(showsText(modal, /Classic \(기존 스타일\)/u));
     assert.match(imageService, /maxImages: 100/u);
     assert.match(imageService, /maxImageBytes: 20 \* 1024 \* 1024/u);
     assert.match(imageService, /maxTotalBytes: 200 \* 1024 \* 1024/u);

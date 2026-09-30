@@ -3,6 +3,7 @@ import {
   clearTimeout as clearNodeTimeout,
   setTimeout as setNodeTimeout
 } from "node:timers";
+import { t } from "../i18n";
 
 const USER_INITIATED = Symbol("hanmark-user-initiated-process");
 
@@ -57,21 +58,21 @@ export function createUserInitiatedAction(source: UserActionSource): UserInitiat
 
 export function assertUserInitiatedAction(action: UserInitiatedAction): void {
   if (!action || action[USER_INITIATED] !== true) {
-    throw new Error("External conversion must be started by an explicit user action.");
+    throw new Error(t("process.notUserAction"));
   }
 }
 
 function cleanExecutable(value: string): string {
   const executable = value.trim();
   if (!executable || executable.includes("\u0000")) {
-    throw new Error("The external executable path is invalid.");
+    throw new Error(t("process.invalidPath"));
   }
   return executable;
 }
 
 function appendChunk(chunks: Buffer[], chunk: Buffer, total: number, limit: number): number {
   const nextTotal = total + chunk.byteLength;
-  if (nextTotal > limit) throw new Error("External process output exceeded the safety limit.");
+  if (nextTotal > limit) throw new Error(t("process.outputTooLarge"));
   chunks.push(chunk);
   return nextTotal;
 }
@@ -79,7 +80,24 @@ function appendChunk(chunks: Buffer[], chunk: Buffer, total: number, limit: numb
 function toError(value: unknown): Error {
   return value instanceof Error
     ? value
-    : new Error("External process failed with a non-Error reason.");
+    : new Error(t("process.unknownFailure"));
+}
+
+/**
+ * Start failures in plain language. A missing program (ENOENT) is the common case,
+ * for example Pandoc not installed or a wrong executable path in settings.
+ */
+function startError(error: Error, executable: string): Error {
+  const code = (error as { code?: unknown }).code;
+  const program = executable.split(/[\\/]/u).pop() || executable;
+  const message =
+    code === "ENOENT"
+      ? t("process.notFound", { program })
+      : code === "EACCES" || code === "EPERM"
+        ? t("process.notAllowed", { program })
+        : null;
+  // Keep the system error code for callers that branch on it.
+  return message === null ? error : Object.assign(new Error(message), { code });
 }
 
 function checkedSuccessExitCodes(values: readonly number[] | undefined): Set<number> {
@@ -88,7 +106,7 @@ function checkedSuccessExitCodes(values: readonly number[] | undefined): Set<num
     codes.length === 0 ||
     codes.some((code) => !Number.isInteger(code) || code < 0 || code > 255)
   ) {
-    throw new Error("External process success exit codes are invalid.");
+    throw new Error(t("process.invalidExitCodes"));
   }
   return new Set(codes);
 }
@@ -117,7 +135,7 @@ export const runUserProcess: UserProcessRunner = async (request, action) => {
       child.once("error", (error) => {
         if (settled) return;
         settled = true;
-        reject(error);
+        reject(startError(error, executable));
       });
       child.once("spawn", () => {
         if (settled) return;
@@ -156,7 +174,7 @@ export const runUserProcess: UserProcessRunner = async (request, action) => {
 
     const timer = setNodeTimeout(() => {
       child.kill();
-      finish(() => reject(new Error(`External process timed out after ${timeoutMs}ms.`)));
+      finish(() => reject(new Error(t("process.timedOut", { seconds: Math.round(timeoutMs / 1000) }))));
     }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -175,16 +193,16 @@ export const runUserProcess: UserProcessRunner = async (request, action) => {
         finish(() => reject(toError(error)));
       }
     });
-    child.on("error", (error) => finish(() => reject(error)));
+    child.on("error", (error) => finish(() => reject(startError(error, executable))));
     child.on("close", (code, signal) => {
       finish(() => {
         const stderrText = Buffer.concat(stderr).toString("utf8").trim();
         if (signal) {
-          reject(new Error(`External process was terminated by signal ${signal}.`));
+          reject(new Error(t("process.killed", { signal })));
           return;
         }
         if (code === null || !successExitCodes.has(code)) {
-          reject(new Error(stderrText || `External process exited with code ${code ?? "unknown"}.`));
+          reject(new Error(stderrText || t("process.exitCode", { code: code ?? "?" })));
           return;
         }
         const output = Buffer.concat(stdout);

@@ -59,6 +59,12 @@ for (const [path, content] of sourceEntries) {
     "direct Node filesystem access is forbidden"
   );
   check(path, content, /\bconsole\.log\s*\(/u, "production console.log is forbidden");
+  check(
+    path,
+    content,
+    /\b(?:window|defaultView\??)\s*(?:\.\s*|\[\s*["'])(?:prompt|confirm|alert)\b/u,
+    "browser prompt/confirm/alert do not work in Electron; use src/ui/dialogs.ts"
+  );
   if (normalizedPath !== "src/legacy-port/userProcess.ts") {
     check(
       path,

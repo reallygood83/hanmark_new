@@ -18,6 +18,13 @@ import type { HanmarkExportOutcome } from "./exportTypes";
 import type { PdfOutputAdapter } from "./pdfOutputAdapter";
 import { layoutEditorialPdf } from "./editorialPdfFlow";
 import type { EditorialPdfLayout } from "./editorialPdfLayout";
+import {
+  resolveOutputLocale,
+  t,
+  tOut,
+  type LanguagePreference,
+  type Locale
+} from "../i18n";
 
 export const EDITORIAL_PDF_MIN_CHROMIUM = 131;
 export const EDITORIAL_PDF_BODY_CLASS = "hanmark-editorial-pdf-active";
@@ -76,13 +83,13 @@ const EDITORIAL_PDF_FONT_PROBES = [
   '600 10pt "HanMark Pretendard"'
 ] as const;
 const EDITORIAL_PDF_FONT_PROBE_TEXT =
-  "HanMark PDF 한글 표지 본문 가나다 ABCDEFG 0123456789";
+  "HanMark PDF 한글 표지 본문 가나다 ABCDEFG 0123456789"; // i18n-data: Hangul glyph probe for font loading
 const EDITORIAL_PDF_FALLBACK_FONT_PROBES = [
   `400 10pt ${EDITORIAL_PDF_PRINT_FONT_FAMILY}`,
   `600 10pt ${EDITORIAL_PDF_PRINT_FONT_FAMILY}`
 ] as const;
 const EDITORIAL_PDF_FALLBACK_FONT_PROBE_TEXT =
-  "한글 표지 본문 가나다";
+  "한글 표지 본문 가나다"; // i18n-data: Hangul glyph probe for font loading
 const EDITORIAL_PDF_HEADER_MAX_GRAPHEMES = 20;
 const EDITORIAL_PDF_COVER_TITLE_WIDTH_PT = 430;
 const EDITORIAL_PDF_COVER_TITLE_MIN_PT = 5;
@@ -159,6 +166,12 @@ export interface EditorialPdfRequest {
   watchdogMs?: number;
   assetTimeoutMs?: number;
   layout?: EditorialPdfLayout;
+  /**
+   * Language of the labels HanMark writes into the PDF (fallback table and
+   * container labels). "auto" (the default) follows the note: Korean when it
+   * contains Hangul, so Korean notes print exactly as before.
+   */
+  outputLanguage?: LanguagePreference;
 }
 
 export interface EditorialPdfRenderTheme {
@@ -172,14 +185,15 @@ export interface EditorialPdfRuntimeSupport {
   minimum: number;
 }
 
+/** Print stages, named by the message key of the label shown in stage errors. */
 export type EditorialPdfStage =
-  | "Markdown 파싱"
-  | "인쇄 DOM 생성"
-  | "인쇄 트리 생성"
-  | "호스트 DOM 연결"
-  | "글꼴·이미지 대기"
-  | "페이지 조판"
-  | "인쇄 호출";
+  | "pdfExport.stage.parse"
+  | "pdfExport.stage.dom"
+  | "pdfExport.stage.tree"
+  | "pdfExport.stage.host"
+  | "pdfExport.stage.assets"
+  | "pdfExport.stage.layout"
+  | "pdfExport.stage.print";
 
 type EditorialTableBlock = Extract<EditorialBlock, { type: "table" }>;
 
@@ -1769,10 +1783,11 @@ function appendEditorialPdfCode(
 
 function editorialPdfFallbackColumnLabel(
   header: readonly EditorialInline[][],
-  index: number
+  index: number,
+  locale: Locale
 ): string {
   const headerCell = header[index];
-  if (!headerCell) return `열 ${index + 1}`;
+  if (!headerCell) return tOut(locale, "pdfExport.output.column", { column: index + 1 });
   const output: string[] = [];
   const stack: EditorialInline[] = [];
   for (let inlineIndex = headerCell.length - 1; inlineIndex >= 0; inlineIndex -= 1) {
@@ -1810,7 +1825,10 @@ function editorialPdfFallbackColumnLabel(
   const label = output.join("")
     .replace(/\s+/gu, " ")
     .trim();
-  return truncateEditorialPdfFallbackLabel(label, `열 ${index + 1}`);
+  return truncateEditorialPdfFallbackLabel(
+    label,
+    tOut(locale, "pdfExport.output.column", { column: index + 1 })
+  );
 }
 
 export function truncateEditorialPdfFallbackLabel(
@@ -1855,7 +1873,8 @@ function appendEditorialPdfFallbackRow(
   cells: readonly EditorialInline[][],
   header: readonly EditorialInline[][],
   depth: number,
-  options: { headerRow: boolean; oversized: boolean }
+  options: { headerRow: boolean; oversized: boolean },
+  locale: Locale
 ): void {
   const row = createHtmlElement(ownerDocument, "div");
   row.classList.add(EDITORIAL_PDF_TABLE_FALLBACK_ROW_CLASS);
@@ -1872,8 +1891,8 @@ function appendEditorialPdfFallbackRow(
     const label = createHtmlElement(ownerDocument, "p");
     label.className = EDITORIAL_PDF_TABLE_FALLBACK_LABEL_CLASS;
     label.textContent = options.headerRow
-      ? `열 ${index + 1} 제목`
-      : editorialPdfFallbackColumnLabel(header, index);
+      ? tOut(locale, "pdfExport.output.columnHeading", { column: index + 1 })
+      : editorialPdfFallbackColumnLabel(header, index, locale);
     const value = createHtmlElement(ownerDocument, "div");
     value.className = EDITORIAL_PDF_TABLE_FALLBACK_VALUE_CLASS;
     appendInlines(ownerDocument, value, cells[index], depth + 1);
@@ -1936,7 +1955,8 @@ function appendEditorialPdfTable(
   parent: HTMLElement,
   block: EditorialTableBlock,
   depth: number,
-  deferTableLayout = false
+  deferTableLayout = false,
+  locale: Locale = "ko"
 ): void {
   if (deferTableLayout) {
     appendEditorialPdfNormalTable(ownerDocument, parent, block.header, block.rows, depth);
@@ -1973,7 +1993,8 @@ function appendEditorialPdfTable(
           oversized:
             estimateEditorialPdfFallbackRowRows(block.header) >
             EDITORIAL_PDF_TABLE_PAGE_BUDGET_ROWS
-        }
+        },
+        locale
       );
     }
     for (const bodyRow of block.rows) {
@@ -1988,7 +2009,8 @@ function appendEditorialPdfTable(
           oversized:
             estimateEditorialPdfFallbackRowRows(bodyRow) >
             EDITORIAL_PDF_TABLE_PAGE_BUDGET_ROWS
-        }
+        },
+        locale
       );
     }
     parent.appendChild(fallback);
@@ -2039,7 +2061,8 @@ function appendEditorialPdfTable(
           oversized:
             estimateEditorialPdfFallbackRowRows(block.header) >
             EDITORIAL_PDF_TABLE_PAGE_BUDGET_ROWS
-        }
+        },
+        locale
       );
       headerHasRendered = true;
     }
@@ -2049,7 +2072,8 @@ function appendEditorialPdfTable(
       bodyRow,
       block.header,
       depth,
-      { headerRow: false, oversized: true }
+      { headerRow: false, oversized: true },
+      locale
     );
     parent.appendChild(fallback);
   }
@@ -2071,7 +2095,8 @@ function appendEditorialPdfContainerFallback(
   labelText: string,
   blocks: readonly EditorialBlock[],
   depth: number,
-  deferTableLayout = false
+  deferTableLayout = false,
+  locale: Locale = "ko"
 ): void {
   const container = createHtmlElement(ownerDocument, "section");
   container.className = EDITORIAL_PDF_CONTAINER_FALLBACK_CLASS;
@@ -2079,11 +2104,11 @@ function appendEditorialPdfContainerFallback(
   label.className = EDITORIAL_PDF_CONTAINER_FALLBACK_LABEL_CLASS;
   label.textContent = truncateEditorialPdfFallbackLabel(
     labelText,
-    "내용"
+    tOut(locale, "pdfExport.output.content")
   );
   const body = createHtmlElement(ownerDocument, "div");
   body.className = EDITORIAL_PDF_CONTAINER_FALLBACK_BODY_CLASS;
-  appendBlocks(ownerDocument, body, blocks, depth + 1, deferTableLayout);
+  appendBlocks(ownerDocument, body, blocks, depth + 1, deferTableLayout, locale);
   container.appendChild(label);
   container.appendChild(body);
   parent.appendChild(container);
@@ -2094,7 +2119,8 @@ function appendBlocks(
   parent: HTMLElement,
   blocks: readonly EditorialBlock[],
   depth = 0,
-  deferTableLayout = false
+  deferTableLayout = false,
+  locale: Locale = "ko"
 ): void {
   if (depth > MAX_EDITORIAL_PDF_RENDER_DEPTH) {
     throw new Error("PDF content nesting exceeds the safe rendering limit.");
@@ -2131,14 +2157,14 @@ function appendBlocks(
             marker.setAttribute("aria-hidden", "true");
             listItem.appendChild(marker);
           }
-          appendBlocks(ownerDocument, listItem, item.blocks, depth + 1, deferTableLayout);
+          appendBlocks(ownerDocument, listItem, item.blocks, depth + 1, deferTableLayout, locale);
           list.appendChild(listItem);
         }
         parent.appendChild(list);
         break;
       }
       case "table": {
-        appendEditorialPdfTable(ownerDocument, parent, block, depth, deferTableLayout);
+        appendEditorialPdfTable(ownerDocument, parent, block, depth, deferTableLayout, locale);
         break;
       }
       case "quote": {
@@ -2149,15 +2175,16 @@ function appendBlocks(
           appendEditorialPdfContainerFallback(
             ownerDocument,
             parent,
-            "인용",
+            tOut(locale, "pdfExport.output.quote"),
             block.blocks,
             depth,
-            deferTableLayout
+            deferTableLayout,
+            locale
           );
           break;
         }
         const quote = createHtmlElement(ownerDocument, "blockquote");
-        appendBlocks(ownerDocument, quote, block.blocks, depth + 1, deferTableLayout);
+        appendBlocks(ownerDocument, quote, block.blocks, depth + 1, deferTableLayout, locale);
         parent.appendChild(quote);
         break;
       }
@@ -2172,7 +2199,8 @@ function appendBlocks(
             block.kind,
             block.blocks,
             depth,
-            deferTableLayout
+            deferTableLayout,
+            locale
           );
           break;
         }
@@ -2185,7 +2213,7 @@ function appendBlocks(
           "CALLOUT"
         );
         callout.appendChild(label);
-        appendBlocks(ownerDocument, callout, block.blocks, depth + 1, deferTableLayout);
+        appendBlocks(ownerDocument, callout, block.blocks, depth + 1, deferTableLayout, locale);
         parent.appendChild(callout);
         break;
       }
@@ -2229,7 +2257,8 @@ export function buildEditorialPdfRoot(
   editorial: EditorialDocument,
   fileTitle: string,
   renderTheme?: EditorialPdfRenderTheme,
-  layout?: EditorialPdfLayout
+  layout?: EditorialPdfLayout,
+  locale: Locale = "ko"
 ): HTMLElement {
   const theme = renderTheme?.resolved.theme ?? BUILTIN_EDITORIAL_PDF_THEME;
   const root = createHtmlElement(ownerDocument, "section");
@@ -2311,7 +2340,7 @@ export function buildEditorialPdfRoot(
     appendInlines(ownerDocument, masthead, editorial.masthead);
     body.appendChild(masthead);
   }
-  appendBlocks(ownerDocument, body, editorial.blocks, 0, Boolean(layout && layout.mode !== "single"));
+  appendBlocks(ownerDocument, body, editorial.blocks, 0, Boolean(layout && layout.mode !== "single"), locale);
   root.appendChild(body);
   return root;
 }
@@ -2624,9 +2653,9 @@ export function primeEditorialPdfPrintLayout(
 
 function editorialPdfUnsupportedMessage(support: EditorialPdfRuntimeSupport): string {
   if (support.chromiumMajor === null) {
-    return `Achmage Editorial PDF requires Chromium ${support.minimum} or newer, but this Obsidian runtime could not be identified.`;
+    return t("pdfExport.error.chromiumUnknown", { minimum: support.minimum });
   }
-  return `Achmage Editorial PDF requires Chromium ${support.minimum} or newer. This Obsidian runtime uses Chromium ${support.chromiumMajor}.`;
+  return t("pdfExport.error.chromiumOld", { minimum: support.minimum, current: support.chromiumMajor });
 }
 
 export function createEditorialPdfStageError(
@@ -2635,7 +2664,7 @@ export function createEditorialPdfStageError(
 ): Error {
   const safeName = safeEditorialPdfErrorName(cause);
   const error = new Error(
-    `Editorial PDF ${stage} 단계에서 실패했습니다. (${safeName})`
+    t("pdfExport.stageFailed", { stage: t(stage), errorName: safeName })
   );
   Object.defineProperty(error, "cause", {
     configurable: true,
@@ -2714,7 +2743,7 @@ export class EditorialPdfService {
   private async run(request: EditorialPdfRequest, adapter?: PdfOutputAdapter): Promise<HanmarkExportOutcome | Uint8Array> {
     if (this.printInProgress) {
       throw new Error(
-        "PDF 내보내기가 이미 진행 중입니다. 현재 인쇄 작업이 끝난 뒤 다시 시도하세요."
+        t("pdfExport.alreadyRunning")
       );
     }
 
@@ -2736,10 +2765,10 @@ export class EditorialPdfService {
 
       const fileTitle = normalizedFileTitle(request.fileName);
       const editorial = runEditorialPdfStage(
-        "Markdown 파싱",
+        "pdfExport.stage.parse",
         () => parseEditorialDocument(request.markdown, fileTitle)
       );
-      const prepared = runEditorialPdfStage("인쇄 트리 생성", () => {
+      const prepared = runEditorialPdfStage("pdfExport.stage.tree", () => {
         const renderTheme = prepareEditorialPdfRenderTheme(request.theme);
         const style = createHtmlElement(ownerDocument, "style");
         style.className = EDITORIAL_PDF_STYLE_CLASS;
@@ -2749,13 +2778,14 @@ export class EditorialPdfService {
           editorial,
           fileTitle,
           renderTheme,
-          request.layout
+          request.layout,
+          resolveOutputLocale(request.outputLanguage, request.markdown)
         );
         return { root, style };
       });
       const { root, style } = prepared;
 
-      runEditorialPdfStage("호스트 DOM 연결", () => {
+      runEditorialPdfStage("pdfExport.stage.host", () => {
         try {
           ownerDocument.head.appendChild(style);
           ownerDocument.body.appendChild(root);
@@ -2815,7 +2845,7 @@ export class EditorialPdfService {
 
       try {
         await runEditorialPdfStageAsync(
-          "글꼴·이미지 대기",
+          "pdfExport.stage.assets",
           () => waitForEditorialPdfAssets(
             ownerDocument,
             root,
@@ -2823,28 +2853,28 @@ export class EditorialPdfService {
             style
           )
         );
-        await runEditorialPdfStageAsync("페이지 조판", () => layoutEditorialPdf(root, style, request.layout));
+        await runEditorialPdfStageAsync("pdfExport.stage.layout", () => layoutEditorialPdf(root, style, request.layout));
         await runEditorialPdfStageAsync(
-          "페이지 조판",
+          "pdfExport.stage.layout",
           () => waitForEditorialPdfLayout(
             root,
             view,
             request.assetTimeoutMs ?? DEFAULT_ASSET_TIMEOUT_MS
           )
         );
-        if (cleaned) throw new Error("PDF 내보내기가 취소되었습니다.");
+        if (cleaned) throw new Error(t("pdfExport.cancelled"));
         if (adapter) {
           generating = true;
           try {
             const bytes = await adapter.render(view);
-            if (cancelled) throw new Error("PDF 내보내기가 취소되었습니다.");
+            if (cancelled) throw new Error(t("pdfExport.cancelled"));
             return bytes;
           } finally {
             generating = false;
             cleanup();
           }
         }
-        runEditorialPdfStage("인쇄 호출", () => view.print());
+        runEditorialPdfStage("pdfExport.stage.print", () => view.print());
         return {
           format: "pdf",
           status: "delegated"

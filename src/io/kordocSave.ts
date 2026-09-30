@@ -8,7 +8,9 @@ import {
   normalizePath,
   type Plugin
 } from "obsidian";
-import { patchHwpx, patchHwp, validateHwpx, type PatchResult } from "kordoc";
+import { patchHwpx, patchHwp, validateHwpx, VERSION as KORDOC_VERSION, type PatchResult } from "kordoc";
+import { importedByCurrentEngine, legacyEngineNote } from "./legacyEngine";
+import { normalizeLanguagePreference, resolveOutputLocale, t, type LanguagePreference } from "../i18n";
 import {
   type HwpSourceContract,
   readSourceContract,
@@ -16,6 +18,8 @@ import {
 } from "./frontmatter";
 import { HwpSaveReportModal } from "./HwpSaveReportModal";
 import { adaptMarkdownForKordoc } from "./markdownAdapter";
+import { assembleEmbedsSetting, prepareExportMarkdown } from "./exportPreparation";
+import { createVaultAssemblyHost } from "./vaultAssemblyHost";
 import {
   generateValidatedHwpxFromAdapted,
   type GeneratedHwpx
@@ -42,10 +46,17 @@ import {
   type FileGateway,
   type SavedFileResult
 } from "./fileGateway";
-import type { TemplateLibraryHost } from "./templateLibrary";
+import { templateFontSubstitutions, type TemplateLibraryHost } from "./templateLibrary";
+import { gongmunFileLabel, gongmunGenerateOptions, planGongmunExport } from "./gongmunExport";
+import { freeVaultPath, gongmunVaultStem, sourceContractGongmunName } from "./exportFileNames";
 
 interface HanmarkPluginIdentity extends TemplateLibraryHost {
   manifest?: Pick<Plugin["manifest"], "id">;
+  /**
+   * The Markdown note the user is exporting. Shared with DOCX/HTML/PDF so HWPX export
+   * keeps working after a preview pane takes focus (2.7.0 W10).
+   */
+  currentMarkdownView?: () => MarkdownView | null;
 }
 
 const TRANSIENT_TEMPLATE_HOST: TemplateLibraryHost = {
@@ -57,6 +68,11 @@ function templateHost(
   plugin: HanmarkPluginIdentity | undefined
 ): TemplateLibraryHost {
   return plugin ?? TRANSIENT_TEMPLATE_HOST;
+}
+
+/** The user's document-label language setting ("auto" when unset). */
+function outputLanguage(plugin: HanmarkPluginIdentity | undefined): LanguagePreference {
+  return normalizeLanguagePreference(templateHost(plugin).settings.outputLanguage);
 }
 
 function runtimePlatform(): NodeJS.Platform {
@@ -83,7 +99,7 @@ function errorMessage(error: unknown): string {
     typeof error === "boolean" ||
     typeof error === "bigint"
   ) return `${error}`;
-  return "알 수 없는 오류";
+  return t("common.unknownError");
 }
 
 function asUint8Array(data: Uint8Array | ArrayBuffer): Uint8Array {
@@ -136,16 +152,19 @@ function confirm(
   });
 }
 
-async function readActiveBody(app: App): Promise<{ file: TFile; body: string } | null> {
-  const view = app.workspace.getActiveViewOfType(MarkdownView);
+async function readActiveBody(
+  app: App,
+  plugin?: HanmarkPluginIdentity
+): Promise<{ file: TFile; body: string } | null> {
+  const view = plugin?.currentMarkdownView?.() ?? app.workspace.getActiveViewOfType(MarkdownView);
   const file = view?.file;
   if (!file) {
-    new Notice("마크다운 노트를 열고 내보내세요.");
+    new Notice(t("save.openNote"));
     return null;
   }
   const body = extractEditableBody(view.editor.getValue() || (await app.vault.read(file)));
   if (!body.trim()) {
-    new Notice("내보낼 내용이 없습니다.");
+    new Notice(t("save.empty"));
     return null;
   }
   return { file, body };
@@ -160,18 +179,28 @@ async function generateBody(
   allowImageFailures = false,
   onImageProgress?: (progress: ImageProgress) => void
 ): Promise<GeneratedHwpx> {
-  const adapted = adaptMarkdownForKordoc(body);
+  const host = templateHost(plugin);
+  const prepared = await prepareExportMarkdown(createVaultAssemblyHost(app), body, file.path, {
+    assembleEmbeds: assembleEmbedsSetting(host.settings),
+    outputLanguage: outputLanguage(plugin)
+  });
+  // Official documents: window preset > note properties > institution style (2.7.0 W5).
+  const gongmun = options.mode === "gongmun-hwpx"
+    ? planGongmunExport(app, file, host, options.gongmunPreset, options.gongmunFormId)
+    : undefined;
+  const adapted = adaptMarkdownForKordoc(prepared.markdown, { outputLanguage: outputLanguage(plugin) });
+  adapted.warnings.unshift(...prepared.warnings, ...(gongmun?.warnings ?? []));
   return generateValidatedHwpxFromAdapted(adapted, {
-    profile: activeTableProfile(templateHost(plugin)),
-    gongmun:
-      options.mode === "gongmun-hwpx"
-        ? { preset: options.gongmunPreset ?? "report" }
-        : undefined,
+    profile: gongmun ? gongmun.profile : activeTableProfile(host),
+    ...(gongmun ? gongmunGenerateOptions(gongmun) : {}),
     documentStyle:
       options.mode === "quick-hwpx"
-        ? activeDocumentStyle(templateHost(plugin))
+        ? activeDocumentStyle(host)
         : undefined,
-    fontResolver: { platform: runtimePlatform() },
+    fontResolver: {
+      platform: runtimePlatform(),
+      rules: options.mode === "quick-hwpx" ? templateFontSubstitutions(host) : undefined
+    },
     images: {
       loader: createObsidianImageLoader(app, file),
       allowFailures: allowImageFailures,
@@ -180,28 +209,84 @@ async function generateBody(
   });
 }
 
+/**
+ * A free vault path for an HWPX beside the note: "{note}.hwpx", or "{note} - {form}.hwpx"
+ * for an official document, then " (1)", " (2)"… Names beside the note are compared
+ * without case, so case-insensitive disks never see two files differing only in case.
+ */
+function hwpxPathBesideNote(app: App, file: TFile, label: string): string {
+  const folder = file.parent?.path && file.parent.path !== "/" ? `${file.parent.path}/` : "";
+  const taken = new Set((file.parent?.children ?? []).map((child) => child.path.toLowerCase()));
+  return normalizePath(
+    freeVaultPath(
+      folder,
+      label ? gongmunVaultStem(file.basename, label) : file.basename,
+      ".hwpx",
+      (path) => taken.has(normalizePath(path).toLowerCase()) || app.vault.getAbstractFileByPath(normalizePath(path)) !== null
+    )
+  );
+}
+
+/** The note an export works on, read once (several forms at once use one snapshot, R-028). */
+export interface ExportNoteSnapshot {
+  file: TFile;
+  body: string;
+}
+
+export async function readExportSnapshot(app: App, plugin?: HanmarkPluginIdentity): Promise<ExportNoteSnapshot | null> {
+  return readActiveBody(app, plugin);
+}
+
+/**
+ * One form of "several forms at once" (R-028): made from the snapshot with the form
+ * named explicitly (the global form stays as it is) and saved beside the note in the
+ * vault — also for notes imported from a Hangul file, so no save dialog interrupts the
+ * run. Missing images raise ImageResolutionError unless `allowImageFailures`.
+ */
+export async function exportGongmunFormBesideNote(
+  app: App,
+  plugin: HanmarkPluginIdentity | undefined,
+  snapshot: ExportNoteSnapshot,
+  formId: string,
+  allowImageFailures: boolean
+): Promise<HanmarkExportOutcome> {
+  const options: HanmarkKordocExportOptions = { mode: "gongmun-hwpx", gongmunFormId: formId };
+  const result = await generateBody(app, snapshot.file, snapshot.body, plugin, options, allowImageFailures);
+  const relative = hwpxPathBesideNote(app, snapshot.file, gongmunExportLabel(app, snapshot.file, snapshot.body, plugin, options));
+  await app.vault.createBinary(relative, result.data);
+  return {
+    format: "hwpx",
+    status: "saved",
+    fileName: filenameFromDisplayPath(relative),
+    displayPath: relative,
+    vaultPath: relative,
+    warnings: exportOutcomeNotes(result)
+  };
+}
+
+/**
+ * The form's name for an official document's file name (R-028), in the note's output
+ * language; "" for quick HWPX.
+ */
+function gongmunExportLabel(
+  app: App,
+  file: TFile,
+  body: string,
+  plugin: HanmarkPluginIdentity | undefined,
+  options: HanmarkKordocExportOptions
+): string {
+  if (options.mode !== "gongmun-hwpx") return "";
+  const host = templateHost(plugin);
+  const plan = planGongmunExport(app, file, host, options.gongmunPreset, options.gongmunFormId);
+  return gongmunFileLabel(host, plan.formId, resolveOutputLocale(outputLanguage(plugin), body));
+}
+
 function warningNote(result: GeneratedHwpx): string {
-  const parts = [
-    `Kordoc 구조 검증 완료 (${result.validation.entryCount}개 ZIP 항목)`
-  ];
+  const parts = [t("save.note.verified", { count: result.validation.entryCount })];
   if (result.documentStyleName) {
-    parts.push(`문서 스타일 적용: ${result.documentStyleName}`);
+    parts.push(t("save.note.style", { name: result.documentStyleName }));
   }
-  if (result.embeddedImageCount) {
-    parts.push(
-      `이미지 ${result.embeddedImageCount}개 포함${
-        result.embeddedImageOccurrences > result.embeddedImageCount
-          ? ` (${result.embeddedImageOccurrences}곳 배치)`
-          : ""
-      }`
-    );
-  }
-  if (result.imageFailures.length) {
-    parts.push(`이미지 ${result.imageFailures.length}개 누락 표시`);
-  }
-  for (const item of result.warnings) {
-    parts.push(`${item.message}${item.count > 1 ? ` (${item.count}건)` : ""}`);
-  }
+  parts.push(...exportOutcomeNotes(result));
   return parts.join(" · ");
 }
 
@@ -209,19 +294,19 @@ function exportOutcomeNotes(result: GeneratedHwpx): string[] {
   const notes: string[] = [];
   if (result.embeddedImageCount) {
     notes.push(
-      `이미지 ${result.embeddedImageCount}개 포함${
+      `${t("save.note.images", { count: result.embeddedImageCount })}${
         result.embeddedImageOccurrences > result.embeddedImageCount
-          ? ` (${result.embeddedImageOccurrences}곳 배치)`
+          ? t("preview.quick.imagePlacements", { count: result.embeddedImageOccurrences })
           : ""
       }`
     );
   }
   if (result.imageFailures.length) {
-    notes.push(`이미지 ${result.imageFailures.length}개 누락 표시`);
+    notes.push(t("save.note.imagesMissing", { count: result.imageFailures.length }));
   }
   for (const warning of result.warnings) {
     notes.push(
-      `${warning.message}${warning.count > 1 ? ` (${warning.count}건)` : ""}`
+      `${warning.message}${warning.count > 1 ? t("save.note.repeat", { count: warning.count }) : ""}`
     );
   }
   return notes;
@@ -229,7 +314,7 @@ function exportOutcomeNotes(result: GeneratedHwpx): string[] {
 
 type ImageFailureAction = "retry" | "continue" | "cancel";
 
-function chooseImageFailureAction(
+export function chooseImageFailureAction(
   app: App,
   failures: ImageFailure[]
 ): Promise<ImageFailureAction> {
@@ -241,18 +326,18 @@ function chooseImageFailureAction(
       resolve(action);
     };
     const modal = new Modal(app);
-    modal.titleEl.setText(`이미지 ${failures.length}개를 포함하지 못했습니다`);
+    modal.titleEl.setText(t("save.imageFailure.title", { count: failures.length }));
     modal.contentEl.createEl("p", {
-      text: "네트워크 또는 파일 경로를 확인한 뒤 다시 시도하거나, 누락 위치를 안내 텍스트로 바꾸어 계속할 수 있습니다."
+      text: t("save.imageFailure.desc")
     });
     const list = modal.contentEl.createEl("ul");
     for (const failure of failures.slice(0, 10)) {
       list.createEl("li", {
-        text: `${failure.alt || failure.source || "이미지"}: ${failure.message}`
+        text: `${failure.alt || failure.source || t("save.imageFailure.image")}: ${failure.message}`
       });
     }
     if (failures.length > 10) {
-      modal.contentEl.createEl("p", { text: `외 ${failures.length - 10}개` });
+      modal.contentEl.createEl("p", { text: t("import.report.more", { count: failures.length - 10 }) });
     }
     const row = modal.contentEl.createDiv();
     row.setCssStyles({
@@ -261,18 +346,18 @@ function chooseImageFailureAction(
       flexWrap: "wrap",
       marginTop: "12px"
     });
-    const retry = row.createEl("button", { text: "다시 시도" });
+    const retry = row.createEl("button", { text: t("import.report.retry") });
     retry.classList.add("mod-cta");
     retry.onclick = () => {
       finish("retry");
       modal.close();
     };
-    const continueButton = row.createEl("button", { text: "누락 표시로 계속" });
+    const continueButton = row.createEl("button", { text: t("save.imageFailure.continue") });
     continueButton.onclick = () => {
       finish("continue");
       modal.close();
     };
-    const cancel = row.createEl("button", { text: "취소" });
+    const cancel = row.createEl("button", { text: t("common.cancel") });
     cancel.onclick = () => {
       finish("cancel");
       modal.close();
@@ -326,10 +411,10 @@ export async function exportKordocHwpxWithOutcome(
   options: HanmarkKordocExportOptions,
   presentReport = false
 ): Promise<HanmarkExportOutcome | null> {
-  const context = await readActiveBody(app);
+  const context = await readActiveBody(app, plugin);
   if (!context) return null;
   const gateway = createFileGateway(app, plugin);
-  const progress = new Notice("Kordoc 4.2.5로 HWPX를 생성하고 검증하는 중…", 0);
+  const progress = new Notice(t("save.progress.generating", { version: String(KORDOC_VERSION) }), 0);
   try {
     let result: GeneratedHwpx;
     let allowImageFailures = false;
@@ -343,17 +428,18 @@ export async function exportKordocHwpxWithOutcome(
           options,
           allowImageFailures,
           (imageProgress) => {
+            const counts = { completed: imageProgress.completed, total: imageProgress.total };
             progress.setMessage(
-              `이미지 불러오는 중 ${imageProgress.completed}/${
-                imageProgress.total
-              } · ${imageProgress.status === "embedded" ? "포함 준비" : "실패"}`
+              imageProgress.status === "embedded"
+                ? t("preview.quick.imageProgressEmbedded", counts)
+                : t("save.progress.imagesFailed", counts)
             );
           }
         );
         break;
       } catch (error) {
         if (!(error instanceof ImageResolutionError)) throw error;
-        progress.setMessage("일부 이미지를 포함하지 못했습니다.");
+        progress.setMessage(t("save.progress.someMissing"));
         const action = await chooseImageFailureAction(app, error.failures);
         if (action === "cancel") {
           return { format: "hwpx", status: "cancelled" };
@@ -361,31 +447,31 @@ export async function exportKordocHwpxWithOutcome(
         allowImageFailures = action === "continue";
         progress.setMessage(
           action === "retry"
-            ? "이미지를 다시 불러오는 중…"
-            : "누락 위치를 표시하고 HWPX를 만드는 중…"
+            ? t("save.progress.retrying")
+            : t("save.progress.marking")
         );
       }
     }
-    progress.setMessage("HWPX 구조를 검증하고 저장하는 중…");
+    progress.setMessage(t("save.progress.saving"));
 
     const contract = readSourceContract(app, context.file);
+    // Official documents name their form: "원본_업무보고_시각.hwpx", "노트 - 업무보고.hwpx" (R-028).
+    const label = gongmunExportLabel(app, context.file, context.body, plugin, options);
     if (contract) {
-      const suffix = options.mode === "gongmun-hwpx" ? "공문서" : "변환";
-      const suggestedName = suffixedName(
-        filenameFromDisplayPath(contract["hwp-source"]),
-        suffix,
-        ".hwpx"
-      );
+      const sourceName = filenameFromDisplayPath(contract["hwp-source"]);
+      const suggestedName = label
+        ? safeSuggestedName(sourceContractGongmunName(splitFilename(sourceName).stem, label, stamp()))
+        : suffixedName(sourceName, t("save.suffix.converted"), ".hwpx");
       const saved = await saveGeneratedExternally(gateway, result, suggestedName);
       if (!saved) return { format: "hwpx", status: "cancelled" };
       if (presentReport) {
         new HwpSaveReportModal(app, {
           title:
             options.mode === "gongmun-hwpx"
-              ? "저장 완료 — 공문서 HWPX"
-              : "저장 완료 — 빠른 HWPX",
+              ? t("save.report.gongmun")
+              : t("save.report.quick"),
           outputPath: savedDisplayName(saved),
-          note: `원본은 그대로 두고 새 파일을 만들었습니다. ${warningNote(result)}`
+          note: t("save.report.newFile", { notes: warningNote(result) })
         }).open();
       }
       return {
@@ -397,26 +483,13 @@ export async function exportKordocHwpxWithOutcome(
         warnings: exportOutcomeNotes(result)
       };
     } else {
-      const folder =
-        context.file.parent?.path && context.file.parent.path !== "/"
-          ? `${context.file.parent.path}/`
-          : "";
-      const suffix = options.mode === "gongmun-hwpx" ? " 공문서" : "";
-      let relative = normalizePath(
-        `${folder}${context.file.basename}${suffix}.hwpx`
-      );
-      let index = 1;
-      while (app.vault.getAbstractFileByPath(relative)) {
-        relative = normalizePath(
-          `${folder}${context.file.basename}${suffix} (${index++}).hwpx`
-        );
-      }
+      const relative = hwpxPathBesideNote(app, context.file, label);
       await app.vault.createBinary(relative, result.data);
       if (presentReport) {
         new Notice(
-          `HWPX 저장 완료: ${relative}${
+          `${t("save.notice.saved", { path: relative })}${
             result.embeddedImageCount
-              ? ` · 이미지 ${result.embeddedImageCount}개 포함`
+              ? t("preview.quick.imagesEmbedded", { count: result.embeddedImageCount })
               : ""
           }`
         );
@@ -426,7 +499,7 @@ export async function exportKordocHwpxWithOutcome(
         (result.warnings.length || result.embeddedImageCount)
       ) {
         new HwpSaveReportModal(app, {
-          title: "저장 완료 — 변환 안내",
+          title: t("save.report.conversion"),
           note: warningNote(result),
           outputPath: relative
         }).open();
@@ -441,7 +514,7 @@ export async function exportKordocHwpxWithOutcome(
       };
     }
   } catch (error) {
-    new Notice(`HWPX 내보내기 실패: ${errorMessage(error)}`);
+    new Notice(t("save.failed", { detail: errorMessage(error) }));
     return null;
   } finally {
     progress.hide();
@@ -461,13 +534,33 @@ export async function patchSourceExperimentalWithOutcome(
   plugin: HanmarkPluginIdentity | undefined,
   presentReport = false
 ): Promise<HanmarkExportOutcome | null> {
-  const context = await readActiveBody(app);
+  const context = await readActiveBody(app, plugin);
   if (!context) return null;
   const contract = readSourceContract(app, context.file);
   const format = contract?.["hwp-source-format"];
   if (!contract || (format !== "hwpx" && format !== "hwp")) {
-    new Notice("원본 형식 보존은 HWP/HWPX에서 불러온 노트에만 사용할 수 있습니다.");
+    new Notice(t("save.patch.onlyImported"));
     return null;
+  }
+  if (!importedByCurrentEngine(contract)) {
+    // R-018: the note was imported by an older Kordoc. The current engine reads the same
+    // original differently, so patching would write engine-output differences into the
+    // original as if they were the user's edits. Create a new HWPX from the note instead.
+    try {
+      const displayPath = await generateFullBeside(
+        app,
+        context.file,
+        contract["hwp-source"],
+        context.body,
+        plugin,
+        createFileGateway(app, plugin)
+      );
+      new Notice(t("save.legacyEngine.notice", { path: displayPath }), 10_000);
+      return { format: "hwpx", status: "saved", displayPath, warnings: [legacyEngineNote()] };
+    } catch (error) {
+      new Notice(t("save.legacy.failed", { detail: errorMessage(error) }));
+      return null;
+    }
   }
   try {
     return await patchSource(
@@ -480,7 +573,7 @@ export async function patchSourceExperimentalWithOutcome(
       presentReport
     );
   } catch (error) {
-    new Notice(`원본 형식 보존 실패: ${errorMessage(error)}`);
+    new Notice(t("save.patch.failed", { detail: errorMessage(error) }));
     return null;
   }
 }
@@ -513,14 +606,14 @@ async function reselectLegacySource(
 ): Promise<Uint8Array | null> {
   const shouldSelect = await confirm(
     app,
-    "원본 파일을 다시 선택해 주세요",
-    "이 노트는 HanMark 2.4.2 이전에 만들어져 안전한 원본 캐시가 없습니다.\n원본을 한 번 선택하면 해시와 크기를 검증한 뒤 HanMark 전용 캐시에 보관합니다.",
-    "원본 선택",
-    "취소"
+    t("save.reselect.title"),
+    t("save.reselect.message"),
+    t("save.reselect.choose"),
+    t("common.cancel")
   );
   if (!shouldSelect) return null;
   const selected = await gateway.pickFiles({
-    title: "가져올 때 사용한 원본 파일 다시 선택",
+    title: t("save.reselect.pickTitle"),
     extensions: [contract["hwp-source-format"]],
     multiple: false
   });
@@ -533,10 +626,7 @@ async function reselectLegacySource(
       contract["hwp-source-bytes"]
     )
   ) {
-    new Notice(
-      "선택한 파일의 해시 또는 크기가 가져올 때의 원본과 다릅니다. 원본 보호를 위해 패치를 중단했습니다.",
-      8_000
-    );
+    new Notice(t("save.reselect.mismatch"), 8_000);
     return null;
   }
   await updateSourceCacheContract(app, file, contract, gateway, bytes);
@@ -587,12 +677,12 @@ async function patchSource(
   const result: PatchResult = await patch(original, body, { verify: true });
   if (!result.success || !result.data) {
     new HwpSaveReportModal(app, {
-      title: "원본 형식 보존 실패 — 원본은 그대로입니다",
+      title: t("save.patch.failedTitle"),
       applied: result.applied,
       skipped: result.skipped,
       note:
         result.error ||
-        "문단·표 구조가 크게 바뀌었거나 암호화된 문서는 패치할 수 없습니다.",
+        t("save.patch.failedNote"),
       generateFull: () =>
         generateFullBeside(
           app,
@@ -610,7 +700,7 @@ async function patchSource(
     const validation = await validateHwpx(result.data);
     if (!validation.ok) {
       new HwpSaveReportModal(app, {
-        title: "패치 결과 검증 실패 — 파일을 저장하지 않았습니다",
+        title: t("save.patch.invalidTitle"),
         applied: result.applied,
         skipped: result.skipped,
         note: validation.issues.map((issue) => issue.message).join(" / ")
@@ -622,18 +712,18 @@ async function patchSource(
   const sourceName = filenameFromDisplayPath(contract["hwp-source"]);
   const extension = splitFilename(sourceName).extension ||
     (contract["hwp-source-format"] === "hwp" ? ".hwp" : ".hwpx");
-  const suggestedName = suffixedName(sourceName, "수정", extension);
+  const suggestedName = suffixedName(sourceName, t("save.suffix.edited"), extension);
   const saved = await gateway.saveFile(result.data, suggestedName);
   if (saved.cancelled) return { format: "hwpx", status: "cancelled" };
 
   if (presentReport) {
     new HwpSaveReportModal(app, {
-      title: "저장 완료 — 원본 형식 보존",
+      title: t("save.patch.savedTitle"),
       applied: result.applied,
       skipped: result.skipped,
       verification: result.verification,
       outputPath: savedDisplayName(saved),
-      note: "원본 파일은 그대로 두고 수정본만 새로 만들었습니다. 중복 원본 백업은 생성하지 않았습니다.",
+      note: t("save.patch.savedNote"),
       generateFull: () =>
         generateFullBeside(
           app,
@@ -651,7 +741,7 @@ async function patchSource(
     fileName: saved.fileName,
     displayPath: savedDisplayName(saved),
     vaultPath: saved.vaultPath,
-    warnings: result.skipped.map((skipped) => skipped.reason || "일부 변경을 건너뛰었습니다.")
+    warnings: result.skipped.map((skipped) => skipped.reason || t("save.patch.skipped"))
   };
 }
 
@@ -672,13 +762,13 @@ async function generateFullBeside(
   );
   const suggestedName = suffixedName(
     filenameFromDisplayPath(originalPath),
-    "전체내용",
+    t("save.suffix.full"),
     ".hwpx"
   );
   const saved = await gateway.saveFile(
     bytesAsArrayBuffer(asUint8Array(generated.data)),
     suggestedName
   );
-  if (saved.cancelled) throw new Error("저장을 취소했습니다.");
+  if (saved.cancelled) throw new Error(t("save.cancelled"));
   return savedDisplayName(saved);
 }

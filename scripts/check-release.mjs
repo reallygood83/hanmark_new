@@ -19,16 +19,26 @@ if (manifest.minAppVersion !== "1.8.9") {
 if (versions[version] !== manifest.minAppVersion) {
   throw new Error(`versions.json ${versions[version]} != minAppVersion ${manifest.minAppVersion}`);
 }
-if (pkg.dependencies?.kordoc !== "4.2.5") throw new Error("kordoc must be pinned exactly to 4.2.5");
+// Keep in step with KORDOC_HARDENING_MANIFEST.version in esbuild.config.mjs.
+const KORDOC_VERSION = "4.15.7";
+if (pkg.dependencies?.kordoc !== KORDOC_VERSION) {
+  throw new Error(`kordoc must be pinned exactly to ${KORDOC_VERSION}`);
+}
 if (pkg.dependencies?.["markdown-it"] !== "14.3.0") {
   throw new Error("markdown-it must be pinned exactly to 14.3.0");
+}
+if (pkg.dependencies?.["markdown-it-footnote"] !== "4.0.0") {
+  throw new Error("markdown-it-footnote must be pinned exactly to 4.0.0");
+}
+if (lock.packages?.["node_modules/markdown-it-footnote"]?.version !== "4.0.0") {
+  throw new Error("package-lock must resolve markdown-it-footnote exactly to 4.0.0");
 }
 if (pkg.devDependencies?.["@fontsource/pretendard"] !== "5.3.0") {
   throw new Error("@fontsource/pretendard must be pinned exactly to 5.3.0");
 }
 if (lock.packages?.[""]?.version !== version) throw new Error("package-lock root version does not match");
-if (lock.packages?.["node_modules/kordoc"]?.version !== "4.2.5") {
-  throw new Error("package-lock must resolve Kordoc exactly to 4.2.5");
+if (lock.packages?.["node_modules/kordoc"]?.version !== KORDOC_VERSION) {
+  throw new Error(`package-lock must resolve Kordoc exactly to ${KORDOC_VERSION}`);
 }
 if (lock.packages?.["node_modules/markdown-it"]?.version !== "14.3.0") {
   throw new Error("package-lock must resolve markdown-it exactly to 14.3.0");
@@ -69,6 +79,13 @@ for (const asset of ["main.js", "manifest.json", "styles.css"]) {
   }
 }
 
+// 2.7.0 W9: every interface text lives in src/i18n. The migration ratchet must stay empty
+// so a release can never ship untranslated Korean interface text (R-019).
+const i18nBaseline = await readJson("scripts/i18n-baseline.json");
+if (Object.keys(i18nBaseline).length !== 0) {
+  throw new Error("scripts/i18n-baseline.json must be empty: move interface text to src/i18n");
+}
+
 await Promise.all([
   access("main.js"),
   access("manifest.json"),
@@ -76,4 +93,4 @@ await Promise.all([
   access(`release-notes/${version}.md`)
 ]);
 
-console.log(`Release check passed: HanMark ${version}, Obsidian ${manifest.minAppVersion}+, Kordoc 4.2.5.`);
+console.log(`Release check passed: HanMark ${version}, Obsidian ${manifest.minAppVersion}+, Kordoc ${KORDOC_VERSION}.`);

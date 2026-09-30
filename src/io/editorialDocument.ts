@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it";
+import footnote from "markdown-it-footnote";
 
 export type EditorialAlignment = "left" | "center" | "right" | "justify";
 
@@ -78,6 +79,8 @@ interface MarkdownToken {
   markup: string;
   info: string;
   hidden: boolean;
+  /** markdown-it-footnote: `{ id }` on footnote_ref and footnote_open (0-based). */
+  meta?: unknown;
 }
 
 interface HtmlAttribute {
@@ -134,7 +137,7 @@ const MARKDOWN = new MarkdownIt({
   html: true,
   linkify: false,
   typographer: false
-});
+}).use(footnote);
 const DEFAULT_MARKDOWN_VALIDATE_LINK = MARKDOWN.validateLink.bind(MARKDOWN);
 
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
@@ -834,6 +837,15 @@ function parseInlineTokens(tokens: MarkdownToken[]): EditorialInline[] {
       case "text":
         appendExtendedText(current(), token.content);
         break;
+      case "footnote_ref":
+        // Rendered with the existing superscript style so HTML and PDF need no new
+        // element type; documents without footnotes are unchanged (R-006).
+        current().push({
+          type: "styled",
+          style: "superscript",
+          children: [{ type: "text", value: String(footnoteNumber(token)) }]
+        });
+        break;
       case "softbreak":
         appendSoftSpace(current());
         break;
@@ -1362,13 +1374,43 @@ export function editorialPlainText(inlines: EditorialInline[]): string {
   return output;
 }
 
+function footnoteNumber(token: MarkdownToken): number {
+  const meta = token.meta;
+  const id = typeof meta === "object" && meta !== null ? (meta as { id?: unknown }).id : undefined;
+  return typeof id === "number" ? id + 1 : 0;
+}
+
+/**
+ * Footnote definitions (collected by markdown-it-footnote at the end of the token
+ * stream) become a rule and a numbered list after the body, like the HWPX and DOCX
+ * outputs keep every note. Returns [] when the document has no footnotes.
+ */
+function parseFootnoteBlocks(tokens: MarkdownToken[], start: number): EditorialBlock[] {
+  const items: EditorialListItem[] = [];
+  const cursor = { index: start + 1 };
+  while (cursor.index < tokens.length && tokens[cursor.index].type !== "footnote_block_close") {
+    if (tokens[cursor.index].type !== "footnote_open") {
+      cursor.index += 1;
+      continue;
+    }
+    cursor.index += 1;
+    items.push({ blocks: parseMarkdownBlocks(tokens, cursor, "footnote_close") });
+    cursor.index += 1;
+  }
+  if (!items.length) return [];
+  return [{ type: "thematic-break" }, { type: "list", ordered: true, start: 1, items }];
+}
+
 export function parseEditorialDocument(
   markdown: string,
   fallbackTitle: string
 ): EditorialDocument {
   const source = `${markdown}`;
-  const tokens = MARKDOWN.parse(source, {}) as MarkdownToken[];
+  const allTokens = MARKDOWN.parse(source, {}) as MarkdownToken[];
+  const footnoteStart = allTokens.findIndex((token) => token.type === "footnote_block_open");
+  const tokens = footnoteStart >= 0 ? allTokens.slice(0, footnoteStart) : allTokens;
   const blocks = parseMarkdownBlocks(tokens, { index: 0 });
+  if (footnoteStart >= 0) blocks.push(...parseFootnoteBlocks(allTokens, footnoteStart));
   const leadingHeading = blocks[0]?.type === "heading" &&
     blocks[0].level === 1
     ? blocks.shift()

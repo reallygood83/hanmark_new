@@ -57,6 +57,7 @@ import {
   type EditorialPdfThemeSnapshot,
   type EditorialPdfThemeV1
 } from "../src/io/editorialPdfTheme";
+import { keysForText, showsText } from "./helpers/uiText";
 
 interface TestDomNode {
   readonly nodeType: "element" | "text";
@@ -215,6 +216,14 @@ function testElements(
 
 function hasTestClass(element: TestElement, className: string): boolean {
   return element.className.split(/\s+/u).includes(className);
+}
+
+/** Regex source for the print-stage message key whose Korean label is `label`. */
+function stageKeyPattern(label: string): string {
+  const keys = keysForText(new RegExp(`^${label}$`, "u"))
+    .filter((key) => key.startsWith("pdfExport.stage."));
+  assert.equal(keys.length, 1, `exactly one print stage key must read ${label}`);
+  return (keys[0] ?? "").replace(/\./gu, "\\.");
 }
 
 interface PrintHarness {
@@ -1424,6 +1433,124 @@ describe("Achmage Editorial PDF helpers", () => {
     );
   });
 
+  it("writes fallback labels in the output language through nested blocks and keeps Korean by default", () => {
+    const code = Array.from(
+      { length: 60 },
+      (_, index) => `const line${String(index + 1)} = true;`
+    ).join("\n");
+    const header = Array.from({ length: 13 }, (_, index): EditorialInline[] =>
+      index === 0 ? [] : [{ type: "text", value: `H${String(index + 1)}` }]
+    );
+    const row = Array.from({ length: 13 }, (_, index): EditorialInline[] => [
+      { type: "text", value: `V${String(index + 1)}` }
+    ]);
+    const blocks: EditorialBlock[] = [
+      {
+        type: "list",
+        ordered: false,
+        items: [{
+          blocks: [{
+            type: "quote",
+            blocks: [
+              { type: "code", language: "ts", value: code },
+              { type: "table", header, rows: [row] }
+            ]
+          }]
+        }]
+      },
+      { type: "callout", kind: "", blocks: [{ type: "code", value: code }] }
+    ];
+    const labels = (locale?: "ko" | "en"): string[] => {
+      const root = buildEditorialPdfRoot(
+        createTestDocument(),
+        { title: "labels", masthead: [], blocks },
+        "labels",
+        undefined,
+        undefined,
+        locale
+      ) as unknown as TestElement;
+      return testElements(
+        root,
+        (element) =>
+          hasTestClass(element, EDITORIAL_PDF_CONTAINER_FALLBACK_LABEL_CLASS) ||
+          hasTestClass(element, EDITORIAL_PDF_TABLE_FALLBACK_LABEL_CLASS)
+      ).map((element) => element.textContent);
+    };
+    const expected = (
+      quote: string,
+      heading: (column: number) => string,
+      column: (column: number) => string,
+      content: string
+    ): string[] => [
+      quote,
+      ...Array.from({ length: 13 }, (_, index) => heading(index + 1)),
+      column(1),
+      ...Array.from({ length: 12 }, (_, index) => `H${String(index + 2)}`),
+      content
+    ];
+
+    const korean = expected(
+      "인용",
+      (value) => `열 ${String(value)} 제목`,
+      (value) => `열 ${String(value)}`,
+      "내용"
+    );
+    assert.deepEqual(labels(), korean);
+    assert.deepEqual(labels("ko"), korean);
+    assert.deepEqual(
+      labels("en"),
+      expected(
+        "Quote",
+        (value) => `Column ${String(value)} heading`,
+        (value) => `Column ${String(value)}`,
+        "Content"
+      )
+    );
+  });
+
+  it("chooses the PDF label language from the note unless the output language is pinned", async () => {
+    const wideTable = [
+      `| ${Array.from({ length: 13 }, (_, index) => `h${String(index + 1)}`).join(" | ")} |`,
+      `|${" --- |".repeat(13)}`,
+      `| ${Array.from({ length: 13 }, (_, index) => `v${String(index + 1)}`).join(" | ")} |`
+    ].join("\n");
+    const firstLabel = async (
+      markdown: string,
+      outputLanguage?: "ko" | "en"
+    ): Promise<string | undefined> => {
+      const harness = createPrintHarness();
+      let label: string | undefined;
+      await new EditorialPdfService().generate(
+        {
+          markdown,
+          fileName: "labels",
+          window: harness.view,
+          document: harness.document,
+          chromiumMajor: 150,
+          ...(outputLanguage ? { outputLanguage } : {})
+        },
+        {
+          render: async () => {
+            const root = harness.document.querySelector(
+              ".hanmark-editorial-pdf-root"
+            ) as unknown as TestElement;
+            label = testElements(
+              root,
+              (element) => hasTestClass(element, EDITORIAL_PDF_TABLE_FALLBACK_LABEL_CLASS)
+            )[0]?.textContent;
+            return new TextEncoder().encode("%PDF-1.7");
+          }
+        }
+      );
+      return label;
+    };
+
+    assert.equal(await firstLabel(`# 한글 문서\n\n${wideTable}`), "열 1 제목");
+    assert.equal(await firstLabel(`# English note\n\n${wideTable}`), "Column 1 heading");
+    assert.equal(await firstLabel(`# English note\n\n${wideTable}`, "ko"), "열 1 제목");
+    assert.equal(await firstLabel(`# 한글 문서\n\n${wideTable}`, "en"), "Column 1 heading");
+  });
+
   it("falls back when a repeated header and one body row are each safe but exceed one page together", () => {
     const header = [multilineInlines("header-line-", 24)];
     const bodyRow = [multilineInlines("body-line-", 20)];
@@ -2258,7 +2385,7 @@ describe("Achmage Editorial PDF helpers", () => {
     const privateSource =
       "https://private.example.test/secret?token=never-log\n# 개인 Markdown 제목";
     const cause = new RangeError(privateSource);
-    const failure = createEditorialPdfStageError("인쇄 DOM 생성", cause);
+    const failure = createEditorialPdfStageError("pdfExport.stage.dom", cause);
 
     assert.match(failure.message, /인쇄 DOM 생성 단계에서 실패했습니다/u);
     assert.doesNotMatch(
@@ -2278,18 +2405,18 @@ describe("Achmage Editorial PDF helpers", () => {
       "인쇄 호출"
     ]) {
       assert.ok(
-        source.includes(`"${stage}"`),
+        showsText(source, new RegExp(`^${stage}$`, "u")),
         `print must label the ${stage} stage`
       );
     }
-    assert.match(source, /runEditorialPdfStage\(\s*"Markdown 파싱"/u);
-    assert.match(source, /runEditorialPdfStage\("인쇄 트리 생성"/u);
-    assert.match(source, /runEditorialPdfStage\("호스트 DOM 연결"/u);
-    assert.match(source, /runEditorialPdfStageAsync\(\s*"글꼴·이미지 대기"/u);
-    assert.match(source, /runEditorialPdfStageAsync\(\s*"페이지 조판"/u);
+    assert.match(source, new RegExp(`runEditorialPdfStage\\(\\s*"${stageKeyPattern("Markdown 파싱")}"`, "u"));
+    assert.match(source, new RegExp(`runEditorialPdfStage\\("${stageKeyPattern("인쇄 트리 생성")}"`, "u"));
+    assert.match(source, new RegExp(`runEditorialPdfStage\\("${stageKeyPattern("호스트 DOM 연결")}"`, "u"));
+    assert.match(source, new RegExp(`runEditorialPdfStageAsync\\(\\s*"${stageKeyPattern("글꼴·이미지 대기")}"`, "u"));
+    assert.match(source, new RegExp(`runEditorialPdfStageAsync\\(\\s*"${stageKeyPattern("페이지 조판")}"`, "u"));
     assert.match(
       source,
-      /runEditorialPdfStage\("인쇄 호출", \(\) => view\.print\(\)\)/u
+      new RegExp(`runEditorialPdfStage\\("${stageKeyPattern("인쇄 호출")}", \\(\\) => view\\.print\\(\\)\\)`, "u")
     );
 
     const privateSource =
@@ -2858,7 +2985,7 @@ describe("Achmage Editorial PDF helpers", () => {
     const privateMessage =
       "C:\\Users\\private-user\\Vault\\secret.md?apiKey=never-echo";
     const failure = createEditorialPdfStageError(
-      "인쇄 DOM 생성",
+      "pdfExport.stage.dom",
       new RangeError(privateMessage)
     );
 
@@ -2868,7 +2995,7 @@ describe("Achmage Editorial PDF helpers", () => {
     const disguised = new Error(privateMessage);
     disguised.name = "SecretFileApiKeyError";
     const disguisedFailure = createEditorialPdfStageError(
-      "인쇄 DOM 생성",
+      "pdfExport.stage.dom",
       disguised
     );
     assert.doesNotMatch(
@@ -2931,11 +3058,14 @@ describe("Achmage Editorial PDF helpers", () => {
     assert.match(source, /root\.remove\(\);\s*style\.remove\(\);/u);
     assert.match(
       source,
-      /runEditorialPdfStage\("인쇄 호출", \(\) => view\.print\(\)\);/u
+      new RegExp(`runEditorialPdfStage\\("${stageKeyPattern("인쇄 호출")}", \\(\\) => view\\.print\\(\\)\\);`, "u")
     );
     assert.match(
       source,
-      /await runEditorialPdfStageAsync\([\s\S]*?"페이지 조판",[\s\S]*?\(\) => waitForEditorialPdfLayout\([\s\S]*?root,[\s\S]*?view,[\s\S]*?DEFAULT_ASSET_TIMEOUT_MS[\s\S]*?\)[\s\S]*?\);/u
+      new RegExp(
+        `await runEditorialPdfStageAsync\\([\\s\\S]*?"${stageKeyPattern("페이지 조판")}",[\\s\\S]*?\\(\\) => waitForEditorialPdfLayout\\([\\s\\S]*?root,[\\s\\S]*?view,[\\s\\S]*?DEFAULT_ASSET_TIMEOUT_MS[\\s\\S]*?\\)[\\s\\S]*?\\);`,
+        "u"
+      )
     );
     assert.match(source, /MAX_EDITORIAL_PDF_RENDER_DEPTH = 128/u);
     assert.match(

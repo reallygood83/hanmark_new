@@ -9,16 +9,17 @@ import {
   type RoleStyleProfile
 } from "../io/documentStyle";
 import { errorMessage } from "../utils/errors";
+import { t, tKey, type MessageKey } from "../i18n";
 
 const HU_PER_MM = 283.4646;
-const ROLE_LABELS: Array<[DocumentStyleRole, string]> = [
-  ["body", "본문"],
-  ["h1", "제목 1 (H1)"],
-  ["h2", "제목 2 (H2)"],
-  ["h3", "제목 3 (H3)"],
-  ["h4", "제목 4 (H4)"],
-  ["h5", "제목 5 (H5)"],
-  ["h6", "제목 6 (H6)"]
+const ROLE_LABELS: Array<[DocumentStyleRole, MessageKey]> = [
+  ["body", "docStyle.role.body"],
+  ["h1", "docStyle.role.h1"],
+  ["h2", "docStyle.role.h2"],
+  ["h3", "docStyle.role.h3"],
+  ["h4", "docStyle.role.h4"],
+  ["h5", "docStyle.role.h5"],
+  ["h6", "docStyle.role.h6"]
 ];
 
 function cloneProfile(profile: DocumentStyleProfile): DocumentStyleProfile {
@@ -89,24 +90,24 @@ export class DocumentStyleModal extends Modal {
     this.modalEl.addClass("hanmark-resizable-workspace-modal");
     contentEl.empty();
     contentEl.addClass("hanmark-document-style-modal");
-    contentEl.createEl("h2", { text: "HanMark 문서 스타일 편집" });
+    contentEl.createEl("h2", { text: t("docStyle.modal.title") });
     contentEl.createEl("p", {
-      text: "빠른 HWPX와 미리보기에 적용됩니다. 본문과 제목 1~6은 각각 독립된 HWPX 스타일로 저장됩니다."
+      text: t("docStyle.modal.desc")
     });
 
     new Setting(contentEl)
-      .setName("스타일 이름")
-      .setDesc("내보내기 화면에 표시할 이름")
+      .setName(t("docStyle.modal.styleName.name"))
+      .setDesc(t("docStyle.modal.styleName.desc"))
       .addText((text) => text.setValue(this.draft.name).onChange((value) => (this.draft.name = value)));
 
-    for (const [role, label] of ROLE_LABELS) this.renderRole(contentEl, role, label);
+    for (const [role, label] of ROLE_LABELS) this.renderRole(contentEl, role, tKey(label));
     this.renderPage(contentEl);
 
     const actions = contentEl.createDiv({ cls: "hanmark-style-modal-actions" });
     actions.setCssStyles({ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "16px" });
-    const cancel = actions.createEl("button", { text: "취소" });
+    const cancel = actions.createEl("button", { text: t("common.cancel") });
     cancel.onclick = () => this.close();
-    const save = actions.createEl("button", { text: "저장하고 적용" });
+    const save = actions.createEl("button", { text: t("docStyle.modal.saveAndApply") });
     save.classList.add("mod-cta");
     save.onclick = async () => {
       save.disabled = true;
@@ -115,7 +116,7 @@ export class DocumentStyleModal extends Modal {
         await this.onSaveProfile(normalized);
         this.close();
       } catch (error: unknown) {
-        new Notice(`문서 스타일 저장 실패: ${errorMessage(error)}`);
+        new Notice(t("docStyle.modal.saveFailed", { detail: errorMessage(error) }));
         save.disabled = false;
       }
     };
@@ -149,11 +150,11 @@ export class DocumentStyleModal extends Modal {
     if (this.openRole !== role) return;
 
     new Setting(card)
-      .setName("한글 글꼴")
-      .setDesc("HWPX에 기록할 한글 글꼴 이름. 해당 컴퓨터에 없으면 대체 글꼴을 사용합니다.")
+      .setName(t("docStyle.modal.hangulFont.name"))
+      .setDesc(t("docStyle.modal.hangulFont.desc"))
       .addText((text) =>
         text
-          .setPlaceholder("함초롬바탕")
+          .setPlaceholder("함초롬바탕") // i18n-data: font family name
           .setValue(value.character.fontFamily || "")
           .onChange((font) => {
             value.character.fontFamily = font;
@@ -161,8 +162,8 @@ export class DocumentStyleModal extends Modal {
       );
 
     new Setting(card)
-      .setName("영문·숫자 글꼴")
-      .setDesc("비워 두면 한글 글꼴을 함께 사용합니다. 예: Times New Roman, Arial")
+      .setName(t("docStyle.modal.latinFont.name"))
+      .setDesc(t("docStyle.modal.latinFont.desc", { example: "Times New Roman, Arial" }))
       .addText((text) =>
         text
           .setPlaceholder(value.character.fontFamily || "Times New Roman")
@@ -173,7 +174,7 @@ export class DocumentStyleModal extends Modal {
       );
 
     new Setting(card)
-      .setName("크기와 굵기")
+      .setName(t("docStyle.modal.sizeWeight.name"))
       .addText((text) =>
         numericInput(text, value.character.fontSizePt, 4, 100, 0.5, (size) => {
           value.character.fontSizePt = size;
@@ -181,7 +182,7 @@ export class DocumentStyleModal extends Modal {
       )
       .addToggle((toggle) =>
         toggle
-          .setTooltip("굵게")
+          .setTooltip(t("docStyle.modal.bold"))
           .setValue(value.character.bold ?? role !== "body")
           .onChange((bold) => {
             value.character.bold = bold;
@@ -189,7 +190,7 @@ export class DocumentStyleModal extends Modal {
       )
       .addToggle((toggle) =>
         toggle
-          .setTooltip("밑줄")
+          .setTooltip(t("docStyle.modal.underline"))
           .setValue(value.character.underline ?? false)
           .onChange((underline) => {
             value.character.underline = underline;
@@ -202,14 +203,14 @@ export class DocumentStyleModal extends Modal {
       );
 
     new Setting(card)
-      .setName("문단 정렬과 줄간격")
+      .setName(t("docStyle.modal.alignSpacing.name"))
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("JUSTIFY", "양쪽 정렬")
-          .addOption("LEFT", "왼쪽")
-          .addOption("CENTER", "가운데")
-          .addOption("RIGHT", "오른쪽")
-          .addOption("DISTRIBUTE", "배분 정렬")
+          .addOption("JUSTIFY", t("docStyle.modal.align.justify"))
+          .addOption("LEFT", t("docStyle.modal.align.left"))
+          .addOption("CENTER", t("docStyle.modal.align.center"))
+          .addOption("RIGHT", t("docStyle.modal.align.right"))
+          .addOption("DISTRIBUTE", t("docStyle.modal.align.distribute"))
           .setValue(value.paragraph.alignment || "JUSTIFY")
           .onChange((alignment) => {
             if (
@@ -231,8 +232,8 @@ export class DocumentStyleModal extends Modal {
       );
 
     new Setting(card)
-      .setName("장평과 자간")
-      .setDesc("장평 % / 자간 %")
+      .setName(t("docStyle.modal.widthSpacing.name"))
+      .setDesc(t("docStyle.modal.widthSpacing.desc"))
       .addText((text) =>
         numericInput(text, value.character.widthPercent, 50, 200, 1, (width) => {
           value.character.widthPercent = width;
@@ -245,8 +246,8 @@ export class DocumentStyleModal extends Modal {
       );
 
     new Setting(card)
-      .setName("들여쓰기와 좌우 여백")
-      .setDesc("첫 줄 / 왼쪽 / 오른쪽, pt · 한글 F6 문단 모양과 같은 단위")
+      .setName(t("docStyle.modal.indent.name"))
+      .setDesc(t("docStyle.modal.indent.desc"))
       .addText((text) =>
         numericInput(text, points(value.paragraph.firstLineIndentHu), -200, 500, 0.5, (pt) => {
           value.paragraph.firstLineIndentHu = hwpPoints(pt);
@@ -264,8 +265,8 @@ export class DocumentStyleModal extends Modal {
       );
 
     new Setting(card)
-      .setName("문단 앞뒤 간격")
-      .setDesc("앞 / 뒤, pt")
+      .setName(t("docStyle.modal.paragraphSpacing.name"))
+      .setDesc(t("docStyle.modal.paragraphSpacing.desc"))
       .addText((text) =>
         numericInput(text, points(value.paragraph.spaceBeforeHu), 0, 200, 0.5, (pt) => {
           value.paragraph.spaceBeforeHu = hwpPoints(pt);
@@ -278,8 +279,8 @@ export class DocumentStyleModal extends Modal {
       );
 
     new Setting(card)
-      .setName("다음 문단과 함께")
-      .setDesc("현재 문단과 다음 문단이 서로 다른 페이지로 나뉘지 않게 합니다.")
+      .setName(t("docStyle.modal.keepWithNext.name"))
+      .setDesc(t("docStyle.modal.keepWithNext.desc"))
       .addToggle((toggle) =>
         toggle.setValue(value.paragraph.keepWithNext ?? role !== "body").onChange((enabled) => {
           value.paragraph.keepWithNext = enabled;
@@ -291,13 +292,16 @@ export class DocumentStyleModal extends Modal {
     const page = this.draft.page;
     if (!page) return;
     const card = root.createDiv({ cls: "hanmark-document-style-page" });
-    card.createEl("h3", { text: "페이지 여백" });
-    const fields: Array<["top" | "bottom" | "left" | "right", string]> = [
-      ["top", "위"], ["bottom", "아래"], ["left", "왼쪽"], ["right", "오른쪽"]
+    card.createEl("h3", { text: t("docStyle.modal.pageMargins") });
+    const fields: Array<["top" | "bottom" | "left" | "right", MessageKey]> = [
+      ["top", "docStyle.modal.marginTop"],
+      ["bottom", "docStyle.modal.marginBottom"],
+      ["left", "docStyle.modal.marginLeft"],
+      ["right", "docStyle.modal.marginRight"]
     ];
     for (const [key, label] of fields) {
       new Setting(card)
-        .setName(`${label} 여백`)
+        .setName(tKey(label))
         .setDesc("mm")
         .addText((text) =>
           numericInput(text, millimeters(page.margins[key]), 0, 100, 0.5, (mm) => {
