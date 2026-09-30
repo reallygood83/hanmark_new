@@ -24,8 +24,8 @@ const KORDOC_VERSION = "4.15.7";
 if (pkg.dependencies?.kordoc !== KORDOC_VERSION) {
   throw new Error(`kordoc must be pinned exactly to ${KORDOC_VERSION}`);
 }
-if (pkg.dependencies?.["markdown-it"] !== "14.3.0") {
-  throw new Error("markdown-it must be pinned exactly to 14.3.0");
+if (pkg.dependencies?.["markdown-it"] !== "14.3.2") {
+  throw new Error("markdown-it must be pinned exactly to 14.3.2");
 }
 if (pkg.dependencies?.["markdown-it-footnote"] !== "4.0.0") {
   throw new Error("markdown-it-footnote must be pinned exactly to 4.0.0");
@@ -40,8 +40,8 @@ if (lock.packages?.[""]?.version !== version) throw new Error("package-lock root
 if (lock.packages?.["node_modules/kordoc"]?.version !== KORDOC_VERSION) {
   throw new Error(`package-lock must resolve Kordoc exactly to ${KORDOC_VERSION}`);
 }
-if (lock.packages?.["node_modules/markdown-it"]?.version !== "14.3.0") {
-  throw new Error("package-lock must resolve markdown-it exactly to 14.3.0");
+if (lock.packages?.["node_modules/markdown-it"]?.version !== "14.3.2") {
+  throw new Error("package-lock must resolve markdown-it exactly to 14.3.2");
 }
 if (lock.packages?.["node_modules/@fontsource/pretendard"]?.version !== "5.3.0") {
   throw new Error("package-lock must resolve @fontsource/pretendard exactly to 5.3.0");
@@ -49,9 +49,10 @@ if (lock.packages?.["node_modules/@fontsource/pretendard"]?.version !== "5.3.0")
 
 const requiredOverrides = {
   "adm-zip": "0.6.1",
-  "fast-uri": "3.1.7",
+  "fast-uri": "3.1.8",
   hono: "4.13.7",
-  "ip-address": "10.3.1",
+  "ip-address": "10.7.2",
+  moment: "2.31.0",
   protobufjs: "8.7.1",
   sharp: "0.35.4"
 };

@@ -43,3 +43,22 @@ Kordoc 4.2.5와 Markdown-it 14.3.0을 유지한다. xmldom은 같은 0.8 계열�
 - https://github.com/advisories/GHSA-2883-xcg3-v3hh
 
 배포 감사와 개발 의존성 포함 npm audit 모두 0건으로 확인했다. 최종 잠금 파일의 Community preview는 같은 최종 커밋으로 다시 실행한다.
+
+
+## 2.7.0 CI 감사 후속 점검 (2026-09-30)
+
+2.7.0 브랜치의 첫 CI가 세 OS 모두 `npm audit --omit=dev --omit=optional` 단계에서 멈췄다. 코드 변경이 아니라 새로 공개된 권고 때문이다(moment 권고는 2026-09-29 공개). 배포 경로 보통 등급 5건과 개발 의존성 포함 8건이다.
+
+- markdown-it 14.3.0: linkify 이차 시간 경로(GHSA-253c-mchw-3w2r). HanMark가 직접 쓰고 Kordoc도 같은 사본을 쓴다(Kordoc 허용 범위 ^14.3.0). 같은 14.x의 14.3.2로 고정한다.
+- fast-uri 3.1.7(ajv 경유, GHSA-hrr3-gc8f-f4qj): override를 같은 3.x의 3.1.8로 올린다(ajv 허용 범위 ^3.0.1).
+- ip-address 10.3.1(express-rate-limit 경유, GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc, GHSA-j6r3-76f7-8jcv, GHSA-h3mg-xc3c-68pw): override를 10.7.2로 올린다(express-rate-limit 허용 범위 ^10.2.0). ajv·express-rate-limit은 Kordoc의 MCP 서버 의존성으로 번들에 들어가지 않는다.
+- moment 2.29.4(개발 의존성 obsidian 타입 경유, GHSA-4p3w-j4w9-5jqw): override로 2.31.0을 고정한다. 번들에 들어가지 않는다.
+
+check-release 기준을 같은 값으로 맞췄다(markdown-it 14.3.2, override fast-uri 3.1.8·ip-address 10.7.2·moment 2.31.0). Kordoc 4.15.7과 markdown-it-footnote 4.0.0은 그대로다.
+
+검증: 배포 감사와 개발 의존성 포함 감사 모두 0건, `npm run check`(테스트 461개, 번들 4,261,151바이트), 브라우저 테스트 4종 통과. Kordoc이 markdown-it으로 Markdown을 읽으므로 4차 실기 노트의 공문서 10개 양식을 다시 만들어 사용자 파일과 바이트 동일함을 확인했다.
+
+- https://github.com/advisories/GHSA-253c-mchw-3w2r
+- https://github.com/advisories/GHSA-hrr3-gc8f-f4qj
+- https://github.com/advisories/GHSA-rpw4-54j3-4h4q
+- https://github.com/advisories/GHSA-4p3w-j4w9-5jqw

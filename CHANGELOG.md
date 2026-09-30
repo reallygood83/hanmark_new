@@ -35,6 +35,7 @@ Only versions published as GitHub Releases are listed as releases. The 2.x miles
 - Replaced browser dialogs and silent template-import failures with Obsidian dialogs and notices, explained missing external programs in plain language, and paused slow live previews automatically.
 - Fixed: editing a custom HWPX template that has only a table style no longer renames it; the export center shows the active Word template's name instead of its internal ID; Word template options show readable labels (for example "At least" instead of `atLeast`); the insert-link command selects the whole placeholder text.
 - Built-in HWPX templates and the built-in PDF theme are shown in the interface language; their stored names are unchanged.
+- Dependencies: markdown-it 14.3.2 and patched transitive packages (fast-uri, ip-address, moment) for new security advisories; the runtime and full dependency audits report no vulnerabilities.
 - Settings migrate to v12. Command IDs are unchanged; new commands fold the toolbar and export an official document to several forms.
 
 ## 2.6.1
