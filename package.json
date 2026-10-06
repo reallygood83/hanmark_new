@@ -1,6 +1,6 @@
 {
   "name": "hanmark",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "description": "No-setup Markdown export to HWPX, self-contained HTML, and Editorial PDF.",
   "main": "main.js",
   "scripts": {
@@ -18,6 +18,7 @@
     "test:pdf-render": "node --import tsx scripts/test-editorial-pdf-render.mjs",
     "test:pdf-ui": "node scripts/test-pdf-export-ui.mjs",
     "test:toolbar-ui": "node scripts/test-toolbar-ui.mjs",
+    "test:company-ui": "node scripts/test-company-template-ui.mjs",
     "test:preview-ui": "node scripts/test-preview-ui.mjs"
   },
   "keywords": [
@@ -38,6 +39,7 @@
     "pdfjs-dist": "4.10.38"
   },
   "overrides": {
+    "@huggingface/transformers": "4.3.0",
     "@hono/node-server": "2.0.11",
     "adm-zip": "0.6.1",
     "body-parser": "2.3.0",
@@ -47,6 +49,7 @@
     "ip-address": "10.7.2",
     "moment": "2.31.0",
     "protobufjs": "8.7.1",
+    "proxy-addr": "2.0.8",
     "sharp": "0.35.4",
     "qs": "6.16.0"
   },

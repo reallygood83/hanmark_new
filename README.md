@@ -2,7 +2,7 @@
 
 **A desktop Obsidian plugin that connects durable Markdown notes with editable Korean HWP/HWPX documents.**
 
-HanMark 2.7.0 uses exactly pinned **Kordoc 4.15.7** for import, HWPX generation (quick and official documents), validation, image embedding, document styles, document comparison, form filling, and fast SVG preview. Creating HWPX files, self-contained HTML, and Editorial PDF requires no Python, pypandoc-hwpx, Pandoc, or executable-path setup. Everything runs offline and uses no AI tokens.
+HanMark 2.7.1 uses exactly pinned **Kordoc 4.15.7** for import, HWPX generation (quick and official documents), validation, image embedding, document styles, document comparison, form filling, and fast SVG preview. Creating HWPX files, self-contained HTML, and Editorial PDF requires no Python, pypandoc-hwpx, Pandoc, or executable-path setup. Everything runs offline and uses no AI tokens.
 
 > Keep the source of knowledge in portable Markdown. Produce HWPX, DOCX, HTML, or PDF when an institution requires it.
 
@@ -11,6 +11,12 @@ HanMark 2.7.0 uses exactly pinned **Kordoc 4.15.7** for import, HWPX generation 
 ---
 
 ## English
+
+### New in 2.7.1
+
+- **Institution document start:** choose between importing an institution HWPX as an editable Markdown template draft and writing a new note from a registered template. An unregistered draft shows a Register form action in the toolbar.
+- **Clearer registration and export:** review the name, document type, organization, and approval line before registering. Missing names show an inline error. The template manager lists institution forms first; official-document export names the form linked to the note and warns if another form is selected.
+- **Same document engines:** existing HWPX, DOCX, HTML, and PDF paths remain unchanged. See the [2.7.1 notes](release-notes/2.7.1.md) and [implementation plan](docs/plans/company-template-ui-2.7.1.md).
 
 ### New in 2.7.0
 
@@ -131,7 +137,7 @@ For notes imported by an earlier HanMark release, the command-palette-only advan
 
 ### Manual installation
 
-Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/laguna821/hanmark/releases) and place them in `<vault>/.obsidian/plugins/hanmark/`.
+Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/reallygood83/hanmark_new/releases) and place them in `<vault>/.obsidian/plugins/hanmark/`.
 
 ### Development
 
@@ -158,7 +164,7 @@ in [`docs/cmds-eagle-bridge-v1.md`](docs/cmds-eagle-bridge-v1.md).
 
 ### Copyright and referenced services
 
-HanMark is released under the [MIT License](LICENSE) by Achmage. The works below are other people's. HanMark does not claim them. Full license texts, hashes, and the Adobe CMap notice are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Versions are the ones pinned in `package-lock.json` for HanMark 2.7.0.
+HanMark is released under the [MIT License](LICENSE) by Achmage. The works below are other people's. HanMark does not claim them. Full license texts, hashes, and the Adobe CMap notice are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Versions are the ones pinned in `package-lock.json` for HanMark 2.7.1.
 
 Hancom Office, Microsoft Word, Pandoc, Obsidian, and Chromium are not included in `main.js`. The user already has them, or installs Pandoc only for DOCX.
 
@@ -219,7 +225,13 @@ The password-protected HWPX sample under `tests/fixtures/password/` is an rhwp f
 
 **Obsidian Markdown과 편집 가능한 한글 HWP/HWPX를 잇는 데스크톱 플러그인입니다.**
 
-HanMark 2.7.0의 불러오기·HWPX 생성(빠른 HWPX·공문서)·검증·이미지 포함·문서 스타일·문서 비교·양식 채우기·빠른 미리보기 엔진은 정확히 고정된 **Kordoc 4.15.7**입니다. HWPX·독립형 HTML·Editorial PDF를 만들 때 Python, pypandoc-hwpx, Pandoc 또는 실행 파일 경로 설정이 필요하지 않습니다. 모든 변환은 오프라인으로 동작하며 AI 토큰을 쓰지 않습니다.
+HanMark 2.7.1의 불러오기·HWPX 생성(빠른 HWPX·공문서)·검증·이미지 포함·문서 스타일·문서 비교·양식 채우기·빠른 미리보기 엔진은 정확히 고정된 **Kordoc 4.15.7**입니다. HWPX·독립형 HTML·Editorial PDF를 만들 때 Python, pypandoc-hwpx, Pandoc 또는 실행 파일 경로 설정이 필요하지 않습니다. 모든 변환은 오프라인으로 동작하며 AI 토큰을 쓰지 않습니다.
+
+### 2.7.1 핵심 변화
+
+- **기관 공문 작성 시작점:** 기관 HWPX를 Markdown 초안으로 가져오거나, 등록된 양식으로 새 공문을 만듭니다. 등록 전 초안을 열면 툴바에서 **기관 양식 등록**을 바로 실행할 수 있습니다.
+- **등록·내보내기 상태 확인:** 이름·문서 종류·기관·결재선을 확인하고 등록합니다. 빈 이름은 입력란에 오류를 표시합니다. 템플릿 관리 창은 기관 양식을 먼저 보여 주며, 공문 내보내기는 현재 노트에 연결된 양식과 다른 양식 선택 여부를 알려 줍니다.
+- 기존 HWPX·DOCX·HTML·PDF 내보내기 엔진은 유지합니다. 자세한 내용은 [2.7.1 안내](release-notes/2.7.1.md)와 [개발 계획](docs/plans/company-template-ui-2.7.1.md)에 있습니다.
 
 ### 2.7.0 핵심 변화
 
@@ -341,7 +353,7 @@ HWP, HWPX, HWPML(`.hml`), PDF, DOCX, XLSX, XLS 문서를 일반 Markdown으로 �
 
 ### 수동 설치
 
-[최신 Release](https://github.com/laguna821/hanmark/releases)의 `main.js`, `manifest.json`, `styles.css`를 `<vault>/.obsidian/plugins/hanmark/`에 넣습니다.
+[최신 Release](https://github.com/reallygood83/hanmark_new/releases)의 `main.js`, `manifest.json`, `styles.css`를 `<vault>/.obsidian/plugins/hanmark/`에 넣습니다.
 
 ### 개발
 
@@ -368,7 +380,7 @@ CMDS Eagle와 자격증명을 공유하지 않는 공개 연동 계약은
 
 ### 저작권과 참고한 서비스
 
-HanMark는 Achmage가 [MIT License](LICENSE)로 공개합니다. 아래는 다른 사람의 저작물입니다. HanMark가 그 권리를 가지지 않습니다. 라이선스 전문, 글꼴 해시, Adobe CMap 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 있습니다. 판 번호는 HanMark 2.7.0의 `package-lock.json`에 고정된 값입니다.
+HanMark는 Achmage가 [MIT License](LICENSE)로 공개합니다. 아래는 다른 사람의 저작물입니다. HanMark가 그 권리를 가지지 않습니다. 라이선스 전문, 글꼴 해시, Adobe CMap 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 있습니다. 판 번호는 HanMark 2.7.1의 `package-lock.json`에 고정된 값입니다.
 
 한컴오피스, Microsoft Word, Pandoc, Obsidian, Chromium은 `main.js`에 들어 있지 않습니다. 사용자가 이미 쓰거나, DOCX가 필요할 때만 Pandoc을 설치합니다.
 

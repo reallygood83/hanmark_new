@@ -2,7 +2,7 @@ name: Publish verified plugin
 
 on:
   push:
-    tags: ["2.7.0"]
+    tags: ["2.7.1"]
 
 concurrency:
   group: release-${{ github.ref }}
@@ -32,6 +32,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:pdf-render
       - run: npm run test:pdf-ui
+      - run: npm run test:toolbar-ui
+      - run: npm run test:company-ui
+      - run: npm run test:preview-ui
 
   release:
     needs: verify
@@ -80,5 +83,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}"
           release/main.js release/manifest.json release/styles.css
           --verify-tag
-          --title "HanMark 2.7.0 — New Engine, Honest Conversion, and Institution Styles"
-          --notes-file "release-notes/2.7.0.md"
+          --title "HanMark 2.7.1 — Institution Document Workflow"
+          --notes-file "release-notes/2.7.1.md"

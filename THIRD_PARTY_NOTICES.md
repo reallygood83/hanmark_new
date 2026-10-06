@@ -59,7 +59,7 @@ before the two `@font-face` declarations.
 ### Software bundled in `main.js`
 
 `main.js` is one esbuild bundle. It contains the following npm packages at the
-versions pinned by `package-lock.json` (HanMark 2.7.0). HanMark uses JSZip under
+versions pinned by `package-lock.json` (HanMark 2.7.1). HanMark uses JSZip under
 the MIT option of its dual license.
 
 | Package | Version | License | Copyright |
@@ -279,7 +279,7 @@ HanMark는 내장 Editorial PDF 레이아웃을 위해 Pretendard 400·600 굵�
 
 ### `main.js`에 포함된 소프트웨어
 
-`main.js`는 esbuild로 묶은 파일 하나입니다. HanMark 2.7.0의 `package-lock.json`이
+`main.js`는 esbuild로 묶은 파일 하나입니다. HanMark 2.7.1의 `package-lock.json`이
 고정한 판의 npm 패키지 25개가 들어 있으며, 패키지·판·라이선스·저작권 표시는 영어
 절의 표와 같습니다. JSZip은 이중 라이선스 중 MIT를 따릅니다. Apache-2.0 패키지
 가운데 NOTICE 파일이 있는 것은 Kordoc뿐이며 그 내용을 아래에 옮깁니다.

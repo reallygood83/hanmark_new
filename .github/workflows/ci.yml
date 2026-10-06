@@ -2,7 +2,7 @@ name: Verify plugin
 
 on:
   push:
-    branches: ["2.7.0"]
+    branches: ["2.7.1"]
   pull_request:
 
 permissions:
@@ -33,4 +33,5 @@ jobs:
       - run: npm run test:pdf-render
       - run: npm run test:pdf-ui
       - run: npm run test:toolbar-ui
+      - run: npm run test:company-ui
       - run: npm run test:preview-ui

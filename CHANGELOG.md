@@ -2,6 +2,13 @@
 
 Only versions published as GitHub Releases are listed as releases. The 2.x milestones below preserve the internal development path that was consolidated into the public 2.4.2 release.
 
+## 2.7.1
+
+- Added an institution-form workflow: import an HWPX into an editable Markdown draft, register its extracted document style and official-document form, then create a new note or apply the form to an existing note without changing the global template.
+- Added one **Institution document** starting point in the toolbar and command palette, a visible draft-registration action, inline name validation, institution-first template management, and a note-linked form status in official-document export. The format picker remains available in a collapsible section.
+- Kept the existing export and preview commands and output engines. Added browser UI checks for the new flow and toolbar state in addition to the normal release gates.
+- Pinned transitive proxy-addr 2.0.8 to clear a newly reported IP-spoofing advisory in the lockfile; this server-only dependency is excluded from the Obsidian runtime bundle.
+
 ## 2.7.0
 
 - Replaced the pinned engine Kordoc 4.2.5 with Kordoc 4.15.7 and rewrote the build hardening for it (versioned replacement manifest, no COM or filesystem paths, one user-initiated process boundary). Kordoc's optional OCR code is never called and no model is downloaded.

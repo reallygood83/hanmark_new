@@ -48,11 +48,13 @@ if (lock.packages?.["node_modules/@fontsource/pretendard"]?.version !== "5.3.0")
 }
 
 const requiredOverrides = {
+  "@huggingface/transformers": "4.3.0",
   "adm-zip": "0.6.1",
   "fast-uri": "3.1.8",
   hono: "4.13.7",
   "ip-address": "10.7.2",
   moment: "2.31.0",
+  "proxy-addr": "2.0.8",
   protobufjs: "8.7.1",
   sharp: "0.35.4"
 };
