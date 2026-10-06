@@ -69,7 +69,7 @@ the MIT option of its dual license.
 | docx-preview | 0.4.0 | Apache-2.0 | Volodymyr Baydalka |
 | @xmldom/xmldom | 0.9.12 (Kordoc) and 0.8.15 | MIT | Copyright 2019 - present Christopher J. Brody and other contributors; Copyright 2012 - 2017 @jindw and other contributors |
 | entities | 4.5.0 | BSD-2-Clause | Copyright (c) Felix Böhm |
-| markdown-it | 14.3.0 | MIT | Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin |
+| markdown-it | 14.3.2 | MIT | Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin |
 | markdown-it-footnote | 4.0.0 | MIT | Copyright (c) 2014-2015 Vitaly Puzrin, Alex Kocharin |
 | linkify-it | 5.0.2 | MIT | Copyright (c) 2015 Vitaly Puzrin |
 | mdurl | 2.0.0 | MIT | Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin |
