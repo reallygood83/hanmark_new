@@ -11,6 +11,75 @@ export interface CompanyTemplateRegistration {
   approval: string;
 }
 
+export interface CompanyTemplateStartChoice {
+  id: string;
+  name: string;
+  detail: string;
+}
+
+export class CompanyTemplateStartModal extends Modal {
+  constructor(
+    app: App,
+    private readonly choices: readonly CompanyTemplateStartChoice[],
+    private readonly draftName: string | undefined,
+    private readonly actions: {
+      importHwpx: () => void;
+      registerDraft: () => void;
+      newDocument: (id: string) => void;
+    }
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(t("companyTemplate.startTitle"));
+    this.contentEl.addClass("hanmark-company-start");
+    this.contentEl.createEl("p", { text: t("companyTemplate.startDesc"), cls: "setting-item-description" });
+
+    if (this.draftName) {
+      const draft = this.contentEl.createDiv({ cls: "hanmark-company-start-draft" });
+      draft.createEl("strong", { text: t("companyTemplate.draftReady", { name: this.draftName }) });
+      draft.createEl("p", { text: t("companyTemplate.draftHint"), cls: "setting-item-description" });
+      const register = draft.createEl("button", { text: t("command.registerCompanyTemplate"), cls: "mod-cta" });
+      register.onclick = () => {
+        this.close();
+        this.actions.registerDraft();
+      };
+    }
+
+    const importButton = this.contentEl.createEl("button", {
+      cls: "hanmark-company-start-import",
+      attr: { type: "button" }
+    });
+    importButton.createEl("strong", { text: t("companyTemplate.startImport") });
+    importButton.createEl("small", { text: t("companyTemplate.startImportDesc") });
+    importButton.onclick = () => {
+      this.close();
+      this.actions.importHwpx();
+    };
+
+    this.contentEl.createEl("h3", { text: t("companyTemplate.startExisting") });
+    if (!this.choices.length) {
+      this.contentEl.createEl("p", { text: t("companyTemplate.none"), cls: "setting-item-description" });
+      return;
+    }
+    const list = this.contentEl.createDiv({ cls: "hanmark-company-start-list" });
+    for (const choice of this.choices) {
+      const button = list.createEl("button", { attr: { type: "button" } });
+      button.createEl("strong", { text: choice.name });
+      button.createEl("small", { text: choice.detail });
+      button.onclick = () => {
+        this.close();
+        this.actions.newDocument(choice.id);
+      };
+    }
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 /** Name, document type, organization, and approval line. Cancel resolves to null. */
 export function promptCompanyTemplateRegistration(
   app: App,
@@ -28,6 +97,7 @@ class RegistrationModal extends Modal {
   private approval: string;
   private settled = false;
   private errorEl: HTMLElement | null = null;
+  private nameInput: HTMLInputElement | null = null;
 
   constructor(
     app: App,
@@ -43,11 +113,21 @@ class RegistrationModal extends Modal {
 
   onOpen(): void {
     this.titleEl.setText(t("companyTemplate.registerTitle"));
-    new Setting(this.contentEl).setName(t("companyTemplate.registerName")).addText((text) => {
+    this.contentEl.createEl("p", { text: t("companyTemplate.registerDesc"), cls: "setting-item-description" });
+    const nameSetting = new Setting(this.contentEl).setName(t("companyTemplate.registerName")).addText((text) => {
+      this.nameInput = text.inputEl;
       text.setValue(this.name).onChange((value) => {
         this.name = value;
+        this.nameInput?.removeAttribute("aria-invalid");
+        this.errorEl?.setText("");
       });
     });
+    nameSetting.settingEl.addClass("hanmark-company-name-setting");
+    this.errorEl = nameSetting.settingEl.createEl("p", {
+      cls: "hanmark-company-field-error mod-warning",
+      attr: { id: "hanmark-company-name-error", role: "alert" }
+    });
+    this.nameInput?.setAttribute("aria-describedby", "hanmark-company-name-error");
     new Setting(this.contentEl).setName(t("companyTemplate.registerPreset")).addDropdown((dropdown) => {
       for (const preset of GONGMUN_PRESETS) dropdown.addOption(preset.value, tKey(preset.label));
       dropdown.setValue(this.preset).onChange((value) => {
@@ -67,7 +147,6 @@ class RegistrationModal extends Modal {
           this.approval = value;
         });
       });
-    this.errorEl = this.contentEl.createEl("p", { cls: "mod-warning" });
     const actions = this.contentEl.createDiv({ cls: "hanmark-dialog-actions" });
     actions.createEl("button", { text: t("common.cancel") }).onclick = () => this.close();
     const confirm = actions.createEl("button", { text: t("common.confirm") });
@@ -76,6 +155,8 @@ class RegistrationModal extends Modal {
       const name = this.name.trim();
       if (!name) {
         this.errorEl?.setText(t("companyTemplate.registerEmptyName"));
+        this.nameInput?.setAttribute("aria-invalid", "true");
+        this.nameInput?.focus();
         return;
       }
       this.settle({ name, preset: this.preset, org: this.org.trim(), approval: this.approval });

@@ -40,6 +40,9 @@ interface AppWithCommands {
 
 export interface ToolbarActions {
   importDocument: () => void;
+  openCompanyDocument: () => void;
+  companyDraftName: (file: MarkdownView["file"]) => string | undefined;
+  registerCompanyDraft: (file: MarkdownView["file"]) => void;
   openHwpxExport: () => void;
   openDocxExport: () => void;
   openHtmlExport: () => void;
@@ -358,6 +361,7 @@ export class ToolbarController {
   initialize(): void {
     const workspace = this.plugin.app.workspace;
     this.plugin.registerEvent(workspace.on("active-leaf-change", () => this.sync()));
+    this.plugin.registerEvent(workspace.on("file-open", () => this.sync()));
     this.plugin.registerEvent(workspace.on("layout-change", () => this.sync()));
     this.plugin.registerEvent(workspace.on("resize", () => this.relayoutAll()));
     this.plugin.registerEvent(workspace.on("window-open", (_workspaceWindow, win) => this.watchDocument(win.document)));
@@ -740,6 +744,14 @@ export class ToolbarController {
 
   /** Follows the cursor: the heading level in the style box and pressed inline buttons. */
   private refreshState(toolbar: ToolbarInstance): void {
+    const registerDraft = toolbar.root.querySelector<HTMLButtonElement>(".hanmark-company-draft-button");
+    if (registerDraft) {
+      const hidden = !this.actions.companyDraftName(toolbar.view.file);
+      if (registerDraft.hidden !== hidden) {
+        registerDraft.hidden = hidden;
+        this.scheduleLayout(toolbar, true);
+      }
+    }
     if (toolbar.view.getMode() === "preview") return;
     const editor = toolbar.view.editor;
     const cursor = editor.getCursor("head");
@@ -1128,6 +1140,7 @@ export class ToolbarController {
   }
 
   private renderMainToolbar(root: HTMLElement): void {
+    const view = this.building?.view;
     const files = this.registerGroup(root.createDiv({ cls: "hwp-toolbar-group" }), "files");
     this.addButton(files, {
       icon: "file-plus",
@@ -1144,6 +1157,20 @@ export class ToolbarController {
       label: t("toolbar.file.import"),
       action: this.actions.importDocument
     });
+    this.addButton(files, {
+      icon: "files",
+      label: t("toolbar.companyDocument"),
+      text: t("toolbar.companyDocumentShort"),
+      action: this.actions.openCompanyDocument
+    });
+    const registerDraft = this.addButton(files, {
+      icon: "file-check-2",
+      label: t("command.registerCompanyTemplate"),
+      text: t("toolbar.registerDraftShort"),
+      action: () => this.actions.registerCompanyDraft(view?.file ?? null)
+    });
+    registerDraft.addClass("hanmark-company-draft-button");
+    registerDraft.hidden = !this.actions.companyDraftName(view?.file ?? null);
     this.addButton(files, {
       icon: "save",
       label: t("toolbar.file.save"),

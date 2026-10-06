@@ -170,6 +170,8 @@ export class HwpxTemplateManagerModal extends Modal {
       text: t("template.manager.desc")
     });
 
+    this.renderCompanyTemplates(contentEl);
+
     const items = availableDocumentTemplates(this.plugin);
     if (!items.some((item) => item.id === this.selectedId)) this.selectedId = activeDocumentTemplate(this.plugin).id;
     for (const [builtIn, heading] of [[true, t("template.manager.builtIn")], [false, t("template.manager.custom")]] as const) {
@@ -307,7 +309,6 @@ export class HwpxTemplateManagerModal extends Modal {
     };
 
     this.renderGongmunStyles(contentEl);
-    this.renderCompanyTemplates(contentEl);
 
     const footer = contentEl.createDiv({ cls: "hanmark-dialog-actions" });
     const close = footer.createEl("button", { text: t("common.close") });
@@ -426,16 +427,18 @@ export class HwpxTemplateManagerModal extends Modal {
     const plugin = this.plugin as CompanyTemplatePlugin;
     const section = container.createDiv({ cls: "hanmark-template-section" });
     section.createEl("h3", { text: t("companyTemplate.section") });
+    section.createEl("p", { text: t("companyTemplate.startDesc"), cls: "setting-item-description" });
     const records = listCompanyTemplates(plugin);
     if (!records.length) section.createEl("p", { text: t("companyTemplate.none") });
     for (const record of records) {
       const row = section.createDiv({ cls: "hanmark-template-row" });
       const info = row.createDiv({ cls: "hanmark-template-info" });
       info.createEl("strong", { text: record.name });
-      const presetId = record.gongmunTemplateId
-        ? plugin.settings.hanmarkTemplateLibrary?.gongmunTemplates[record.gongmunTemplateId]?.preset
+      const form = record.gongmunTemplateId
+        ? plugin.settings.hanmarkTemplateLibrary?.gongmunTemplates[record.gongmunTemplateId]
         : undefined;
-      if (presetId) info.createEl("small", { text: gongmunPresetLabel(presetId) });
+      const detail = [form?.options.org, form?.preset ? gongmunPresetLabel(form.preset) : undefined].filter(Boolean).join(" · ");
+      if (detail) info.createEl("small", { text: detail });
       const actions = row.createDiv({ cls: "hanmark-template-actions" });
       actions.createEl("button", { text: t("companyTemplate.newDocument") }).onclick = () => {
         this.close();

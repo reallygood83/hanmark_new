@@ -68,6 +68,7 @@ export interface HanmarkExportActions {
    * types, and the user's own in one list. A form decides both the type and the look.
    */
   gongmunForms?: () => GongmunFormOption[];
+  companyTemplateContext?: () => { name: string; formId?: string } | undefined;
   /** The form to start with: the active institution form, else the note's type, else the last type. */
   currentGongmunForm?: () => string;
   /** Makes a form active and returns its document type. */
@@ -307,7 +308,13 @@ export class HanmarkExportModal extends Modal {
       this.renderFooter(contentEl);
       return;
     }
-    this.renderFormatGrid(contentEl);
+    if (this.format === "hwpx" && this.hwpxVariant === "gongmun") {
+      const formats = contentEl.createEl("details", { cls: "hanmark-export-formats-collapsed" });
+      formats.createEl("summary", { text: t("export.changeFormat") });
+      this.renderFormatGrid(formats);
+    } else {
+      this.renderFormatGrid(contentEl);
+    }
 
     const detail = contentEl.createDiv({
       cls: "hanmark-export-detail",
@@ -449,6 +456,15 @@ export class HanmarkExportModal extends Modal {
   }
 
   private renderGongmunOptions(root: HTMLElement): void {
+    const linked = this.actions.companyTemplateContext?.();
+    if (linked) {
+      root.createEl("p", {
+        cls: "hanmark-export-company-context",
+        text: linked.formId === this.gongmunForm
+          ? t("companyTemplate.exportLinked", { name: linked.name })
+          : t("companyTemplate.exportOtherForm", { name: linked.name })
+      });
+    }
     // One list of forms (R-026): choosing a form decides both the type and the look.
     const forms = this.actions.gongmunForms?.() ?? [];
     if (forms.length) {

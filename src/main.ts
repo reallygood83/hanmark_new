@@ -141,6 +141,7 @@ import { StartPanels } from "./ui/startPanel";
 import { GongmunStyleModal } from "./ui/GongmunStyleModal";
 import {
   currentGongmunFormId,
+  gongmunPresetLabel,
   listGongmunForms,
   notePresetHint,
   planGongmunExport,
@@ -153,14 +154,17 @@ import {
   gongmunPropertyKeysFor
 } from "./io/gongmunProperties";
 import { detachDeletedTemplateNotes, renameCompanyTemplateNotes } from "./io/companyTemplate";
+import { CompanyTemplateStartModal } from "./ui/CompanyTemplateModal";
 import {
   createCompanyTemplate,
   newDocumentFromCompanyTemplate,
   registerCompanyTemplate
 } from "./io/companyTemplateFlow";
 import {
+  companyTemplateByNotePath,
   companyTemplateForNote,
   getTemplateLibrary,
+  listCompanyTemplates,
   noteQuickStyle,
   putTemplateRecord,
   templateDisplayName,
@@ -417,6 +421,9 @@ export default class HanmarkPlugin extends Plugin {
       this,
       {
         importDocument: () => this.openImportModal(),
+        openCompanyDocument: () => this.openCompanyTemplateStart(),
+        companyDraftName: (file) => this.currentCompanyDraft(file)?.name,
+        registerCompanyDraft: (file) => void this.registerCurrentCompanyTemplate(file),
         openHwpxExport: () => this.openExportCenter("hwpx"),
         openDocxExport: () => this.openExportCenter("docx"),
         openHtmlExport: () => this.openExportCenter("html"),
@@ -868,6 +875,11 @@ export default class HanmarkPlugin extends Plugin {
       callback: () => this.openDocumentStyleEditor()
     });
     this.addCommand({
+      id: "start-company-document",
+      name: t("command.startCompanyDocument"),
+      callback: () => this.openCompanyTemplateStart()
+    });
+    this.addCommand({
       id: "create-company-template",
       name: t("command.createCompanyTemplate"),
       callback: () => {
@@ -877,9 +889,7 @@ export default class HanmarkPlugin extends Plugin {
     this.addCommand({
       id: "register-company-template",
       name: t("command.registerCompanyTemplate"),
-      callback: () => {
-        void registerCompanyTemplate(this, this.currentMarkdownView()?.file ?? null);
-      }
+      callback: () => void this.registerCurrentCompanyTemplate()
     });
     this.addCommand({
       id: "new-document-from-company-template",
@@ -1083,6 +1093,10 @@ export default class HanmarkPlugin extends Plugin {
         },
         revealOutput: (outcome) => this.revealExportOutput(outcome),
         gongmunForms: () => listGongmunForms(this),
+        companyTemplateContext: () => {
+          const linked = companyTemplateForNote(this, this.currentMarkdownView()?.file?.path);
+          return linked ? { name: linked.name, formId: linked.gongmunTemplateId } : undefined;
+        },
         currentGongmunForm: () => this.currentGongmunForm(this.currentMarkdownView()?.file),
         selectGongmunForm: (id) => this.selectGongmunForm(id),
         editGongmunForm: (id, preset, changed) => this.openGongmunStyle(id, changed, preset),
@@ -1798,6 +1812,33 @@ export default class HanmarkPlugin extends Plugin {
       },
       this.gateway
     ).open();
+  }
+
+  private currentCompanyDraft(file: TFile | null = this.currentMarkdownView()?.file ?? null) {
+    const record = file ? companyTemplateByNotePath(this, file.path) : undefined;
+    return record && !record.registered ? record : undefined;
+  }
+
+  private async registerCurrentCompanyTemplate(file: TFile | null = this.currentMarkdownView()?.file ?? null): Promise<void> {
+    await registerCompanyTemplate(this, file);
+    this.toolbar?.refresh();
+  }
+
+  private openCompanyTemplateStart(): void {
+    const library = getTemplateLibrary(this);
+    const choices = listCompanyTemplates(this).map((record) => {
+      const form = record.gongmunTemplateId ? library.gongmunTemplates[record.gongmunTemplateId] : undefined;
+      return {
+        id: record.id,
+        name: record.name,
+        detail: [form?.options.org, form?.preset ? gongmunPresetLabel(form.preset) : undefined].filter(Boolean).join(" · ") || record.sourceName || "HWPX"
+      };
+    });
+    new CompanyTemplateStartModal(this.app, choices, this.currentCompanyDraft()?.name, {
+      importHwpx: () => void createCompanyTemplate(this, this.currentMarkdownView()?.file ?? null),
+      registerDraft: () => void this.registerCurrentCompanyTemplate(),
+      newDocument: (id) => void newDocumentFromCompanyTemplate(this, id)
+    }).open();
   }
 
   private openWordTemplateManager(): void {

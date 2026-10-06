@@ -213,6 +213,23 @@
   gap: 12px;
 }
 
+.hanmark-export-formats-collapsed > summary {
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.hanmark-export-formats-collapsed[open] .hanmark-export-format-grid {
+  margin-top: 12px;
+}
+
+.hanmark-export-company-context {
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-inline-start: 3px solid var(--interactive-accent);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+
 .hanmark-export-format-card {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
@@ -723,6 +740,88 @@
   max-height: 78vh;
   overflow-y: auto;
   padding-right: 6px;
+}
+
+.hanmark-company-start {
+  display: grid;
+  gap: 12px;
+}
+
+.hanmark-company-start h3,
+.hanmark-company-start p {
+  margin: 0;
+}
+
+.hanmark-company-start-import,
+.hanmark-company-start-list button {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  text-align: start;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.hanmark-company-start-import:hover,
+.hanmark-company-start-list button:hover {
+  background: var(--background-modifier-hover);
+}
+
+.hanmark-company-start-import small,
+.hanmark-company-start-list small {
+  color: var(--text-muted);
+}
+
+.hanmark-company-start-list {
+  display: grid;
+  gap: 8px;
+  max-height: 36vh;
+  overflow-y: auto;
+}
+
+.hanmark-company-start-draft {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 8px;
+}
+
+.hanmark-company-start-draft button {
+  justify-self: start;
+}
+
+.hanmark-company-draft-button[hidden] {
+  display: none;
+}
+
+.hanmark-company-name-setting {
+  flex-wrap: wrap;
+}
+
+.hanmark-company-field-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-error);
+}
+
+.hanmark-template-section {
+  margin: 16px 0;
+}
+
+.hanmark-template-section .hanmark-template-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  cursor: default;
+}
+
+.hanmark-template-section .hanmark-template-actions {
+  margin-top: 0;
 }
 
 .hanmark-template-group {
