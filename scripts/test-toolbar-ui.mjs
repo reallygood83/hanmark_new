@@ -128,9 +128,11 @@ try {
       };
       const leaf = { isDeferred: false, id };
       leaf.view = new ToolbarUi.MarkdownView(leaf, container, editor);
+      leaf.view.file = { path: `${id}.md` };
       return leaf;
     };
     globalThis.calls = [];
+    globalThis.draft = false;
     globalThis.events = {};
     globalThis.settings = {
       toolbarSkinMode: "auto", toolbarCollapsed: false, toolbarPeek: false, toolbarLook: "classic",
@@ -163,7 +165,7 @@ try {
     globalThis.activeView = leafA.view;
     globalThis.controller = new ToolbarUi.ToolbarController(
       plugin,
-      { importDocument() {}, openHwpxExport() {}, openDocxExport() {}, openHtmlExport() {}, openPdfExport() {}, toggleHwpxPreview() {}, openTemplateManager() {}, openSettings() {} },
+      { importDocument() {}, openCompanyDocument() { calls.push("company-start"); }, companyDraftName(file) { return draft && file?.path === "pane-a.md" ? "초안" : undefined; }, registerCompanyDraft(file) { calls.push(`register:${file?.path}`); }, openHwpxExport() {}, openDocxExport() {}, openHtmlExport() {}, openPdfExport() {}, toggleHwpxPreview() {}, openTemplateManager() {}, openSettings() {} },
       true,
       () => settings,
       { persist: async () => { persisted += 1; }, currentMarkdownView: () => globalThis.activeView, activity, jobs }
@@ -201,6 +203,14 @@ try {
   assert.ok(state.b.rows.some((row) => row.hidden > 0 && row.more), "a narrow pane moves groups into the ⋯ menu");
   assert.match(state.b.classes, /is-inactive/u, "the other pane's toolbar rests dimmed");
   assert.doesNotMatch(state.a.classes, /is-inactive/u);
+  await page.locator('#pane-a [aria-label="기관 공문 작성"]').click();
+  assert.ok(await page.evaluate(() => calls.includes("company-start")));
+  await page.evaluate(() => { draft = true; for (const callback of events["file-open"] || []) callback(); });
+  await page.locator('#pane-a [aria-label="기관 양식 등록"]').click();
+  assert.ok(await page.evaluate(() => calls.includes("register:pane-a.md")));
+  assert.equal(await page.locator('#pane-b [aria-label="기관 양식 등록"]').isVisible(), false);
+  await page.evaluate(() => { draft = false; for (const callback of events["file-open"] || []) callback(); });
+  assert.equal(await page.locator('#pane-a [aria-label="기관 양식 등록"]').isVisible(), false);
   await page.screenshot({ path: `${shots}/1-expanded.png` });
 
   // Switching panes must not move either note.

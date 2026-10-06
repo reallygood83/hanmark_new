@@ -16,6 +16,16 @@ test("unified export modal exposes four accessible format cards", async () => {
   assert.doesNotMatch(source, /\.innerHTML|\.outerHTML/u);
 });
 
+test("official export keeps the linked institution visible and lets users change formats", async () => {
+  const modal = await readFile("src/ui/HanmarkExportModal.ts", "utf8");
+  const host = await readFile("src/main.ts", "utf8");
+  assert.match(modal, /this\.actions\.companyTemplateContext\?\.\(\)/u);
+  assert.match(modal, /linked\.formId === this\.gongmunForm/u);
+  assert.match(modal, /t\("companyTemplate\.exportOtherForm"/u);
+  assert.match(modal, /createEl\("details", \{ cls: "hanmark-export-formats-collapsed" \}\)/u);
+  assert.match(host, /companyTemplateForNote\(this, this\.currentMarkdownView\(\)\?\.file\?\.path\)/u);
+});
+
 test("unified export modal keeps format-specific options and one active footer", async () => {
   const source = await readFile("src/ui/HanmarkExportModal.ts", "utf8");
 
