@@ -156,6 +156,63 @@ in [`docs/cmds-eagle-bridge-v1.md`](docs/cmds-eagle-bridge-v1.md).
 - [Pandoc](https://pandoc.org/) — optional DOCX conversion only.
 - [msjang/pypandoc-hwpx](https://github.com/msjang/pypandoc-hwpx) — the project that powered HanMark's earlier HWPX workflow.
 
+### Copyright and referenced services
+
+HanMark is released under the [MIT License](LICENSE) by Achmage. The works below are other people's. HanMark does not claim them. Full license texts, hashes, and the Adobe CMap notice are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Versions are the ones pinned in `package-lock.json` for HanMark 2.7.0.
+
+Hancom Office, Microsoft Word, Pandoc, Obsidian, and Chromium are not included in `main.js`. The user already has them, or installs Pandoc only for DOCX.
+
+#### Included in the plugin
+
+| Work | Use in HanMark | License | Copyright |
+| --- | --- | --- | --- |
+| [Kordoc](https://github.com/chrisryugj/kordoc) 4.15.7 | Import, HWPX, validation, comparison, form filling, styles, SVG preview | MIT | Copyright (c) 2026 chrisryugj |
+| [PDF.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist` 4.10.38) | PDF text and Korean CMap loading | Apache-2.0 | Mozilla Foundation |
+| Adobe Korean PDF CMaps (24 files from `pdfjs-dist/cmaps`) | Korean PDF text (Adobe-Korea1, UniKS, KSC, KSCms), embedded unchanged | Adobe CMap notice | Copyright 1990-2009 Adobe Systems Incorporated |
+| [docx-preview](https://github.com/VolodymyrBaydalka/docxjs) 0.4.0 | DOCX package preview | Apache-2.0 | Volodymyr Baydalka |
+| [@xmldom/xmldom](https://github.com/xmldom/xmldom) 0.9.12 (via Kordoc) and 0.8.15 | XML | MIT | Copyright 2019–present Christopher J. Brody and contributors; Copyright 2012–2017 @jindw and contributors |
+| [markdown-it](https://github.com/markdown-it/markdown-it) 14.3.2 | Markdown for HTML and PDF | MIT | Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin |
+| [markdown-it-footnote](https://github.com/markdown-it/markdown-it-footnote) 4.0.0 | Footnotes in HTML and PDF | MIT | Copyright (c) 2014–2015 Vitaly Puzrin, Alex Kocharin |
+| [linkify-it](https://github.com/markdown-it/linkify-it) 5.0.2 | Link detection inside markdown-it | MIT | Copyright (c) 2015 Vitaly Puzrin |
+| [mdurl](https://github.com/markdown-it/mdurl) 2.0.0 | URL handling inside markdown-it | MIT | Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin |
+| [uc.micro](https://github.com/markdown-it/uc.micro) 2.1.0 | Unicode classes inside markdown-it | MIT | Copyright Mathias Bynens |
+| [punycode.js](https://github.com/mathiasbynens/punycode.js) 2.3.1 | IDN handling inside markdown-it | MIT | Copyright Mathias Bynens |
+| [JSZip](https://github.com/Stuk/jszip) 3.10.1 | HWPX zip reading and writing. Dual-licensed; HanMark uses MIT | MIT (or GPL-3.0-or-later) | Copyright (c) 2009–2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso |
+| [pako](https://github.com/nodeca/pako) 1.0.11 | Deflate inside JSZip | MIT and zlib | Copyright (C) 2014–2017 Vitaly Puzrin and Andrei Tuputcyn; zlib (C) 1995–2013 Jean-loup Gailly and Mark Adler |
+| [cfb](https://github.com/SheetJS/js-cfb) 1.2.2 | Compound File Binary reading inside Kordoc | Apache-2.0 | SheetJS LLC |
+| [entities](https://github.com/fb55/entities) 4.5.0 | HTML entity decoding | BSD-2-Clause | Copyright (c) Felix Böhm |
+| [Pretendard](https://github.com/orioncactus/pretendard) 400 and 600, via `@fontsource/pretendard` 5.3.0 | Embedded in `styles.css` for Editorial PDF, bytes unchanged, family alias `HanMark Pretendard` | SIL Open Font License 1.1 | Copyright (c) 2021 Kil Hyung-Jin |
+| rhwp standard draft letters (일반기안문, 간이기안문) | Two HWPX forms embedded unchanged from Kordoc | MIT | Copyright 2025–2026 Edward Kim. The blank layout follows a Korean statutory public form |
+
+Small MIT or ISC libraries that ride along inside those packages: `readable-stream` 2.3.8 and `core-util-is` 1.0.3 (Node.js contributors), `lie` 3.3.0 (Calvin Metcalf, Jordan Harband), `process-nextick-args` 2.0.1 (Calvin Metcalf), `setimmediate` 1.0.5 and `immediate` 3.0.6 (Barnesandnoble.com, llc, Donavon West, Domenic Denicola, Brian Cavalier), `safe-buffer` 5.1.2 (Feross Aboukhadijeh), `inherits` 2.0.4 (Isaac Z. Schlueter, ISC), `isarray` 1.0.0 (Julian Gruber), `util-deprecate` 1.0.2 (Nathan Rajlich).
+
+#### Works Kordoc builds on (from Kordoc's NOTICE)
+
+| Work | What reached HanMark | License | Copyright |
+| --- | --- | --- | --- |
+| [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) | PDF table detection, rewritten in TypeScript inside Kordoc | Apache-2.0 | Copyright 2025–2026 Hancom, Inc. |
+| hml-equation-parser | HWPX equation script to LaTeX, rewritten in TypeScript inside Kordoc | Apache-2.0 | Copyright 2018 Open Bapul |
+| [rhwp](https://github.com/edwardkim/rhwp) | Lenient CFB reading and distribution-document decryption, rewritten in TypeScript, plus the two draft-letter forms | MIT | Copyright 2025–2026 Edward Kim |
+| [claw-hwp](https://github.com/DoHyun468/claw-hwp) | Chart XML, form-matching rules, and validation checks | MIT | Copyright (c) 2026 DoHyun468 |
+| Pix2Text | Optional OCR code is inside the Kordoc bundle. HanMark never calls it, downloads no model, and ships no weights | MIT | Upstream Pix2Text authors |
+| PaddleOCR PP-OCRv5 | Same: present in Kordoc, never called by HanMark | Apache-2.0 | Upstream PaddleOCR authors |
+
+The password-protected HWPX sample under `tests/fixtures/password/` is an rhwp fixture (MIT, Edward Kim). It is not part of `main.js`.
+
+#### Ideas and tools that are not bundled
+
+| Service | Relationship | License note |
+| --- | --- | --- |
+| [Kami](https://github.com/tw93/kami) by Tw93 | Achmage Editorial adapts selected document-design ideas. No Kami package, Source Han font, TsangerJinKai font, template, or example is bundled | Copyright (c) 2026 Tw93, MIT |
+| [Pandoc](https://pandoc.org/) | Optional DOCX conversion. The user installs it. HanMark does not ship the program | Pandoc's own license (GPL). It stays outside this bundle |
+| [pypandoc-hwpx](https://github.com/msjang/pypandoc-hwpx) | Powered HanMark's earlier HWPX path. That path is retired and the package is not bundled | Upstream project's license |
+| [Obsidian](https://obsidian.md/) | Host application. The `obsidian` npm package is a type stub used only while developing | Obsidian's terms. Not bundled in `main.js` |
+| Hancom Office (한글) | The user opens `.hwpx` here. HanMark does not include Hancom's program, fonts, or document files | Hancom's terms. Separate from the Apache-2.0 OpenDataLoader PDF notice above |
+| Microsoft Word | Optional Windows Word-to-PDF preview, only after the user asks | Microsoft's terms. Not bundled |
+| Chromium print | Editorial PDF uses the print engine inside desktop Obsidian. HanMark does not ship Chromium | Supplied by Obsidian |
+| Hallym University forms | Built-in institution looks (Ilsong College of Liberal Arts minutes and meeting materials, AI Convergence Research Institute interim report) are HanMark's own style options named for those forms. The university's original files are not redistributed | The names refer to the institution. The original documents remain the institution's |
+| Korean administrative draft-letter blank | Statutory public form. The embedded files are Edward Kim's MIT copies, listed above | Public form layout; file copyright is Edward Kim's |
+
 ---
 
 ## 한국어
@@ -308,6 +365,63 @@ CMDS Eagle와 자격증명을 공유하지 않는 공개 연동 계약은
 - [Pretendard](https://github.com/orioncactus/pretendard) 400·600 (`@fontsource/pretendard` 5.3.0) — SIL Open Font License 1.1에 따라 Editorial PDF용으로 포함합니다. 자세한 표기는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 참고하십시오.
 - [Pandoc](https://pandoc.org/) — 선택적 DOCX 변환에만 사용.
 - [msjang/pypandoc-hwpx](https://github.com/msjang/pypandoc-hwpx) — HanMark 초기 HWPX 경로의 기반이 된 프로젝트.
+
+### 저작권과 참고한 서비스
+
+HanMark는 Achmage가 [MIT License](LICENSE)로 공개합니다. 아래는 다른 사람의 저작물입니다. HanMark가 그 권리를 가지지 않습니다. 라이선스 전문, 글꼴 해시, Adobe CMap 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 있습니다. 판 번호는 HanMark 2.7.0의 `package-lock.json`에 고정된 값입니다.
+
+한컴오피스, Microsoft Word, Pandoc, Obsidian, Chromium은 `main.js`에 들어 있지 않습니다. 사용자가 이미 쓰거나, DOCX가 필요할 때만 Pandoc을 설치합니다.
+
+#### 플러그인에 포함된 저작물
+
+| 저작물 | HanMark에서의 쓰임 | 라이선스 | 저작권 |
+| --- | --- | --- | --- |
+| [Kordoc](https://github.com/chrisryugj/kordoc) 4.15.7 | 불러오기, HWPX, 검증, 비교, 양식 채우기, 스타일, SVG 미리보기 | MIT | Copyright (c) 2026 chrisryugj |
+| [PDF.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist` 4.10.38) | PDF 글자 추출과 한국어 CMap | Apache-2.0 | Mozilla Foundation |
+| Adobe 한국어 PDF CMap 24개 (`pdfjs-dist/cmaps`) | 한국어 PDF 글자(Adobe-Korea1, UniKS, KSC, KSCms). 바이트는 바꾸지 않고 포함 | Adobe CMap 고지 | Copyright 1990–2009 Adobe Systems Incorporated |
+| [docx-preview](https://github.com/VolodymyrBaydalka/docxjs) 0.4.0 | DOCX 패키지 미리보기 | Apache-2.0 | Volodymyr Baydalka |
+| [@xmldom/xmldom](https://github.com/xmldom/xmldom) 0.9.12(Kordoc 경유)와 0.8.15 | XML | MIT | Copyright 2019–현재 Christopher J. Brody와 기여자, Copyright 2012–2017 @jindw와 기여자 |
+| [markdown-it](https://github.com/markdown-it/markdown-it) 14.3.2 | HTML·PDF용 Markdown | MIT | Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin |
+| [markdown-it-footnote](https://github.com/markdown-it/markdown-it-footnote) 4.0.0 | HTML·PDF 각주 | MIT | Copyright (c) 2014–2015 Vitaly Puzrin, Alex Kocharin |
+| [linkify-it](https://github.com/markdown-it/linkify-it) 5.0.2 | markdown-it의 링크 인식 | MIT | Copyright (c) 2015 Vitaly Puzrin |
+| [mdurl](https://github.com/markdown-it/mdurl) 2.0.0 | markdown-it의 URL 처리 | MIT | Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin |
+| [uc.micro](https://github.com/markdown-it/uc.micro) 2.1.0 | markdown-it의 유니코드 분류 | MIT | Copyright Mathias Bynens |
+| [punycode.js](https://github.com/mathiasbynens/punycode.js) 2.3.1 | markdown-it의 국제화 도메인 | MIT | Copyright Mathias Bynens |
+| [JSZip](https://github.com/Stuk/jszip) 3.10.1 | HWPX 압축. 이중 라이선스 중 MIT를 사용 | MIT 또는 GPL-3.0-or-later | Copyright (c) 2009–2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso |
+| [pako](https://github.com/nodeca/pako) 1.0.11 | JSZip의 압축 해제 | MIT와 zlib | Copyright (C) 2014–2017 Vitaly Puzrin, Andrei Tuputcyn. zlib (C) 1995–2013 Jean-loup Gailly, Mark Adler |
+| [cfb](https://github.com/SheetJS/js-cfb) 1.2.2 | Kordoc의 Compound File Binary 읽기 | Apache-2.0 | SheetJS LLC |
+| [entities](https://github.com/fb55/entities) 4.5.0 | HTML 엔티티 해석 | BSD-2-Clause | Copyright (c) Felix Böhm |
+| [Pretendard](https://github.com/orioncactus/pretendard) 400·600 (`@fontsource/pretendard` 5.3.0) | Editorial PDF용으로 `styles.css`에 포함. 바이트는 그대로, 글꼴 이름 `HanMark Pretendard` | SIL Open Font License 1.1 | Copyright (c) 2021 Kil Hyung-Jin |
+| rhwp 표준 기안문(일반기안문, 간이기안문) | Kordoc이 포함한 HWPX 2종을 바꾸지 않고 포함 | MIT | Copyright 2025–2026 Edward Kim. 빈 양식의 틀은 행정 효율 규정상의 공개 서식 |
+
+그 패키지에 딸려 오는 작은 라이브러리: `readable-stream` 2.3.8, `core-util-is` 1.0.3(Node.js 기여자, MIT), `lie` 3.3.0(Calvin Metcalf, Jordan Harband), `process-nextick-args` 2.0.1(Calvin Metcalf), `setimmediate` 1.0.5, `immediate` 3.0.6(Barnesandnoble.com, llc, Donavon West, Domenic Denicola, Brian Cavalier), `safe-buffer` 5.1.2(Feross Aboukhadijeh), `inherits` 2.0.4(Isaac Z. Schlueter, ISC), `isarray` 1.0.0(Julian Gruber), `util-deprecate` 1.0.2(Nathan Rajlich). 모두 MIT입니다. `inherits`만 ISC입니다.
+
+#### Kordoc이 바탕으로 삼은 저작물 (Kordoc NOTICE)
+
+| 저작물 | HanMark에 닿은 부분 | 라이선스 | 저작권 |
+| --- | --- | --- | --- |
+| [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) | PDF 표 검출. Kordoc이 TypeScript로 다시 작성 | Apache-2.0 | Copyright 2025–2026 Hancom, Inc. |
+| hml-equation-parser | HWPX 수식 스크립트를 LaTeX로. Kordoc이 TypeScript로 다시 작성 | Apache-2.0 | Copyright 2018 Open Bapul |
+| [rhwp](https://github.com/edwardkim/rhwp) | CFB 읽기와 배포용 문서 암호 해제(TypeScript로 재작성), 표준 기안문 2종 | MIT | Copyright 2025–2026 Edward Kim |
+| [claw-hwp](https://github.com/DoHyun468/claw-hwp) | 차트 XML, 양식 맞추기, 검증 | MIT | Copyright (c) 2026 DoHyun468 |
+| Pix2Text | Kordoc 묶음 안의 선택 OCR. HanMark는 호출하지 않고, 모델을 받지 않으며, 가중치를 넣지 않음 | MIT | Pix2Text 원 저작자 |
+| PaddleOCR PP-OCRv5 | 같음. 묶음에만 있고 HanMark는 호출하지 않음 | Apache-2.0 | PaddleOCR 원 저작자 |
+
+`tests/fixtures/password/`의 암호 HWPX 표본은 rhwp 견본(MIT, Edward Kim)입니다. `main.js`에는 들어 있지 않습니다.
+
+#### 포함하지 않고 참고만 한 서비스
+
+| 서비스 | 관계 | 라이선스 |
+| --- | --- | --- |
+| Tw93의 [Kami](https://github.com/tw93/kami) | Achmage Editorial이 문서 디자인 원칙 일부만 응용. Kami 패키지, Source Han 글꼴, TsangerJinKai 글꼴, 템플릿, 예문은 포함하지 않음 | Copyright (c) 2026 Tw93, MIT |
+| [Pandoc](https://pandoc.org/) | 선택적 DOCX 변환. 사용자가 설치. HanMark는 프로그램을 넣지 않음 | Pandoc 자신의 라이선스(GPL). 이 묶음 밖 |
+| [pypandoc-hwpx](https://github.com/msjang/pypandoc-hwpx) | 예전 HWPX 경로의 기반. 그 경로는 빠졌고 패키지도 포함하지 않음 | 원 프로젝트 라이선스 |
+| [Obsidian](https://obsidian.md/) | 플러그인이 돌아가는 프로그램. `obsidian` npm 패키지는 개발용 타입 선언 | Obsidian 이용 약관. `main.js`에 포함하지 않음 |
+| 한컴오피스 (한글) | 사용자가 `.hwpx`를 여는 프로그램. 한컴 프로그램, 글꼴, 문서 파일은 포함하지 않음 | 한컴 이용 약관. 위의 Apache-2.0 OpenDataLoader PDF와는 별개 |
+| Microsoft Word | 사용자가 요청할 때만 Windows에서 Word로 PDF 미리보기 | Microsoft 이용 약관. 포함하지 않음 |
+| Chromium 인쇄 | Editorial PDF는 데스크톱 Obsidian 안의 인쇄 엔진을 사용. HanMark가 Chromium을 넣지는 않음 | Obsidian이 제공 |
+| 한림대학교 양식 | 일송자유교양대학 회의록·회의자료, AI융합연구원 중간 보고서는 HanMark가 만든 서식 옵션이고 그 양식의 이름을 빌림. 대학 원본 파일은 재배포하지 않음 | 이름은 기관을 가리킴. 원본 문서는 기관의 것 |
+| 행정 표준 기안문 빈 양식 | 법령상 공개 서식. 포함한 파일은 위에 적은 Edward Kim의 MIT 사본 | 서식 틀은 공개 서식, 파일 저작권은 Edward Kim |
 
 ## License
 

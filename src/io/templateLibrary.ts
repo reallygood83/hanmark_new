@@ -13,6 +13,12 @@ import type { GongmunOutlineStyle } from "./gongmunOutline";
 import { normalizeGongmunStyleOptions, type CoverDateFormat, type GongmunStyleOptions } from "./gongmunStyle";
 import type { GongmunFinishSpec } from "./hwpxFinish";
 import { BUILTIN_GONGMUN_STYLES, builtinGongmunStyle, isBuiltinGongmunStyleId } from "./institutionStyles";
+import {
+  normalizeCompanyTemplateRecord,
+  normalizeCompanyTemplates,
+  type CompanyTemplateRecord
+} from "./companyTemplate";
+import { normalizeFormMemory, rememberNoteForm, type FormMemory } from "./formMemory";
 import { t, tKey, type MessageKey } from "../i18n";
 
 export const BUILTIN_TEMPLATE_IDS = [
@@ -75,6 +81,8 @@ export interface HanmarkTemplateLibrary {
   activeGongmunId: string;
   /** Standard type chosen last when no institution form is active (R-026). */
   activeGongmunPreset: GongmunPreset;
+  /** Institution templates. Saving one does not change activeId or activeGongmunId. */
+  companyTemplates: Record<string, CompanyTemplateRecord>;
 }
 
 /** One of Kordoc's eight official-document types. */
@@ -213,7 +221,8 @@ export function emptyTemplateLibrary(): HanmarkTemplateLibrary {
     customTemplates: {},
     gongmunTemplates: {},
     activeGongmunId: "",
-    activeGongmunPreset: "report"
+    activeGongmunPreset: "report",
+    companyTemplates: {}
   };
 }
 
@@ -238,6 +247,7 @@ export function normalizeTemplateLibrary(value: unknown): HanmarkTemplateLibrary
     result.activeGongmunId = activeGongmunId;
   }
   if (isGongmunPreset(value.activeGongmunPreset)) result.activeGongmunPreset = value.activeGongmunPreset;
+  result.companyTemplates = normalizeCompanyTemplates(value.companyTemplates);
   return result;
 }
 
@@ -600,4 +610,84 @@ export function setActiveGongmunPresetInMemory(plugin: TemplateLibraryHost, pres
   const library = getTemplateLibrary(plugin);
   library.activeGongmunPreset = preset;
   plugin.settings.hanmarkTemplateLibrary = library;
+}
+
+function companyTemplateMap(plugin: TemplateLibraryHost): FormMemory {
+  return normalizeFormMemory(plugin.settings.companyTemplateByNote);
+}
+
+/** Saves one company template. Does not change the global active template or form. */
+export function putCompanyTemplate(plugin: TemplateLibraryHost, raw: CompanyTemplateRecord): CompanyTemplateRecord {
+  const library = getTemplateLibrary(plugin);
+  const activeId = library.activeId;
+  const activeGongmunId = library.activeGongmunId;
+  const activeGongmunPreset = library.activeGongmunPreset;
+  const existing = library.companyTemplates[raw.id];
+  const normalized = normalizeCompanyTemplateRecord({
+    ...raw,
+    createdAt: existing?.createdAt || raw.createdAt,
+    updatedAt: new Date().toISOString()
+  });
+  if (!normalized) throw new Error(t("template.error.empty"));
+  library.companyTemplates[normalized.id] = normalized;
+  library.activeId = activeId;
+  library.activeGongmunId = activeGongmunId;
+  library.activeGongmunPreset = activeGongmunPreset;
+  plugin.settings.hanmarkTemplateLibrary = library;
+  return { ...normalized };
+}
+
+/** Removes the link only. The template note, working notes, and style records stay. */
+export function removeCompanyTemplate(plugin: TemplateLibraryHost, id: string): void {
+  const library = getTemplateLibrary(plugin);
+  delete library.companyTemplates[id];
+  plugin.settings.hanmarkTemplateLibrary = library;
+  const next: FormMemory = {};
+  for (const [path, value] of Object.entries(companyTemplateMap(plugin))) if (value !== id) next[path] = value;
+  plugin.settings.companyTemplateByNote = next;
+}
+
+export function rememberCompanyTemplate(plugin: TemplateLibraryHost, path: string, id: string): void {
+  plugin.settings.companyTemplateByNote = rememberNoteForm(companyTemplateMap(plugin), path, id);
+}
+
+export function listCompanyTemplates(plugin: TemplateLibraryHost): CompanyTemplateRecord[] {
+  return Object.values(getTemplateLibrary(plugin).companyTemplates)
+    .filter((record) => record.registered)
+    .sort((left, right) => left.name.localeCompare(right.name, "ko", { sensitivity: "base" }));
+}
+
+/** The draft or registered template whose note is `path`. */
+export function companyTemplateByNotePath(plugin: TemplateLibraryHost, path: string): CompanyTemplateRecord | undefined {
+  return Object.values(getTemplateLibrary(plugin).companyTemplates).find((record) => record.notePath === path);
+}
+
+/** The registered company template linked from a working note. */
+export function companyTemplateForNote(plugin: TemplateLibraryHost, path: string | undefined): CompanyTemplateRecord | undefined {
+  if (!path) return undefined;
+  const id = companyTemplateMap(plugin)[path];
+  if (!id) return undefined;
+  const record = getTemplateLibrary(plugin).companyTemplates[id];
+  return record?.registered ? record : undefined;
+}
+
+export interface NoteQuickStyle {
+  documentStyle: DocumentStyleProfile;
+  tableStyle?: FormatProfile;
+  fontSubstitutions?: Record<string, string>;
+  gongmunTemplateId?: string;
+}
+
+/** The linked note's document style, when that record is still there. */
+export function noteQuickStyle(plugin: TemplateLibraryHost, path: string | undefined): NoteQuickStyle | undefined {
+  const linked = companyTemplateForNote(plugin, path);
+  if (!linked?.documentStyleId) return undefined;
+  const record = getTemplateLibrary(plugin).customTemplates[linked.documentStyleId];
+  if (!record?.documentStyle) return undefined;
+  return {
+    documentStyle: record.documentStyle,
+    tableStyle: record.tableStyle,
+    fontSubstitutions: record.fontSubstitutions,
+    gongmunTemplateId: linked.gongmunTemplateId
+  };
 }

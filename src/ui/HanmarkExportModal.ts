@@ -74,6 +74,8 @@ export interface HanmarkExportActions {
   selectGongmunForm?: (id: string) => Promise<GongmunPreset>;
   /** Opens the form editor; `null` creates a form of `preset`. `changed` gets the saved id ("" after a delete). */
   editGongmunForm?: (id: string | null, preset: GongmunPreset, changed: (id: string) => void) => void;
+  /** Starts a company template from an HWPX file. */
+  createCompanyTemplate?: () => void;
   /** The document type the note asks for through its properties. */
   notePresetHint?: () => GongmunPreset | undefined;
   insertGongmunProperties?: (preset: GongmunPreset) => Promise<void>;
@@ -503,6 +505,14 @@ export class HanmarkExportModal extends Modal {
           });
           edit.disabled = this.busy;
           edit.onclick = () => this.actions.editGongmunForm?.(current.id, current.preset, (id) => this.formChanged(id));
+        }
+        if (this.actions.createCompanyTemplate) {
+          const company = formActions.createEl("button", {
+            text: t("command.createCompanyTemplate"),
+            attr: { type: "button" }
+          });
+          company.disabled = this.busy;
+          company.onclick = () => this.actions.createCompanyTemplate?.();
         }
       }
     }

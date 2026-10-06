@@ -71,6 +71,7 @@ import { ImageResolutionError } from "./io/imageAssets";
 import { GongmunBatchModal } from "./ui/GongmunBatchModal";
 import {
   forgetNotePaths,
+  normalizeFormMemory,
   rememberNoteForm,
   rememberedNoteForm,
   renameNotePaths,
@@ -151,7 +152,20 @@ import {
   GONGMUN_PROPERTIES,
   gongmunPropertyKeysFor
 } from "./io/gongmunProperties";
-import { templateDisplayName, templateFontSubstitutions } from "./io/templateLibrary";
+import { detachDeletedTemplateNotes, renameCompanyTemplateNotes } from "./io/companyTemplate";
+import {
+  createCompanyTemplate,
+  newDocumentFromCompanyTemplate,
+  registerCompanyTemplate
+} from "./io/companyTemplateFlow";
+import {
+  companyTemplateForNote,
+  getTemplateLibrary,
+  noteQuickStyle,
+  putTemplateRecord,
+  templateDisplayName,
+  templateFontSubstitutions
+} from "./io/templateLibrary";
 import type { GongmunPreset } from "kordoc";
 import type { HwpxExportVariant } from "./io/exportTypes";
 import {
@@ -663,9 +677,18 @@ export default class HanmarkPlugin extends Plugin {
       QUICK_HWPX_PREVIEW_VIEW,
       (leaf: WorkspaceLeaf) =>
         new QuickHwpxPreviewView(leaf, {
-          profile: () => activeTableProfile(this),
-          documentStyle: () => activeDocumentStyle(this),
-          fontRules: () => templateFontSubstitutions(this),
+          profile: () => {
+            const path = this.currentMarkdownView()?.file?.path;
+            return noteQuickStyle(this, path)?.tableStyle ?? activeTableProfile(this);
+          },
+          documentStyle: () => {
+            const path = this.currentMarkdownView()?.file?.path;
+            return noteQuickStyle(this, path)?.documentStyle ?? activeDocumentStyle(this);
+          },
+          fontRules: () => {
+            const path = this.currentMarkdownView()?.file?.path;
+            return noteQuickStyle(this, path)?.fontSubstitutions ?? templateFontSubstitutions(this);
+          },
           sourceView: () => this.currentMarkdownView(),
           livePreviewEnabled: () => this.settings.enableLivePreview,
           autoPauseEnabled: () => this.settings.previewAutoPause,
@@ -843,6 +866,27 @@ export default class HanmarkPlugin extends Plugin {
       id: "edit-document-style",
       name: t("command.editHwpxTemplate"),
       callback: () => this.openDocumentStyleEditor()
+    });
+    this.addCommand({
+      id: "create-company-template",
+      name: t("command.createCompanyTemplate"),
+      callback: () => {
+        void createCompanyTemplate(this, this.currentMarkdownView()?.file ?? null);
+      }
+    });
+    this.addCommand({
+      id: "register-company-template",
+      name: t("command.registerCompanyTemplate"),
+      callback: () => {
+        void registerCompanyTemplate(this, this.currentMarkdownView()?.file ?? null);
+      }
+    });
+    this.addCommand({
+      id: "new-document-from-company-template",
+      name: t("command.newDocumentFromCompanyTemplate"),
+      callback: () => {
+        void newDocumentFromCompanyTemplate(this);
+      }
     });
 
     // Public 1.x command IDs remain stable so hotkeys and mobile toolbar
@@ -1042,6 +1086,9 @@ export default class HanmarkPlugin extends Plugin {
         currentGongmunForm: () => this.currentGongmunForm(this.currentMarkdownView()?.file),
         selectGongmunForm: (id) => this.selectGongmunForm(id),
         editGongmunForm: (id, preset, changed) => this.openGongmunStyle(id, changed, preset),
+        createCompanyTemplate: () => {
+          void createCompanyTemplate(this, this.currentMarkdownView()?.file ?? null);
+        },
         notePresetHint: () => notePresetHint(this.app, this.currentMarkdownView()?.file),
         insertGongmunProperties: (preset) => this.insertGongmunProperties(preset),
         lintGongmun: (preset) => this.openGongmunLint(preset),
@@ -1174,27 +1221,42 @@ export default class HanmarkPlugin extends Plugin {
         void this.saveSettings();
       }, 1000);
     };
-    const apply = (forms: FormMemory, recent: RecentExport[]): void => {
-      const before = JSON.stringify([this.settings.gongmunFormByNote, this.settings.recentExports]);
-      if (before === JSON.stringify([forms, recent])) return;
+    const apply = (forms: FormMemory, recent: RecentExport[], companyNotes: ReturnType<typeof renameCompanyTemplateNotes>, links: FormMemory): void => {
+      const library = getTemplateLibrary(this);
+      const before = JSON.stringify([
+        this.settings.gongmunFormByNote,
+        this.settings.recentExports,
+        library.companyTemplates,
+        normalizeFormMemory(this.settings.companyTemplateByNote)
+      ]);
+      const after = JSON.stringify([forms, recent, companyNotes, links]);
+      if (before === after) return;
       this.settings.gongmunFormByNote = forms;
       this.settings.recentExports = recent;
+      library.companyTemplates = companyNotes;
+      this.settings.companyTemplateByNote = links;
       saveSoon();
       this.startPanels?.sync();
     };
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
+        const library = getTemplateLibrary(this);
         apply(
           renameNotePaths(this.settings.gongmunFormByNote, oldPath, file.path),
-          renameRecentExports(this.settings.recentExports, oldPath, file.path)
+          renameRecentExports(this.settings.recentExports, oldPath, file.path),
+          renameCompanyTemplateNotes(library.companyTemplates, oldPath, file.path),
+          renameNotePaths(normalizeFormMemory(this.settings.companyTemplateByNote), oldPath, file.path)
         );
       })
     );
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
+        const library = getTemplateLibrary(this);
         apply(
           forgetNotePaths(this.settings.gongmunFormByNote, file.path),
-          forgetRecentExports(this.settings.recentExports, file.path)
+          forgetRecentExports(this.settings.recentExports, file.path),
+          detachDeletedTemplateNotes(library.companyTemplates, file.path),
+          forgetNotePaths(normalizeFormMemory(this.settings.companyTemplateByNote), file.path)
         );
       })
     );
@@ -1683,6 +1745,35 @@ export default class HanmarkPlugin extends Plugin {
 
   /** Opens the style editor on `profile`, or on the active template under its displayed name. */
   private openDocumentStyleEditor(profile?: DocumentStyleProfile): void {
+    const linkedId = companyTemplateForNote(this, this.currentMarkdownView()?.file?.path)?.documentStyleId;
+    const linkedRecord = linkedId ? getTemplateLibrary(this).customTemplates[linkedId] : undefined;
+    if (!profile && linkedRecord?.documentStyle && linkedId) {
+      const styleId = linkedRecord.id;
+      const name = linkedRecord.name;
+      const initial = editableDocumentStyle({
+        name,
+        documentStyle: { ...linkedRecord.documentStyle, name }
+      });
+      new DocumentStyleModal(this.app, initial, async (savedProfile) => {
+        const current = getTemplateLibrary(this).customTemplates[styleId];
+        if (!current) return;
+        const activeId = getTemplateLibrary(this).activeId;
+        const activeGongmunId = getTemplateLibrary(this).activeGongmunId;
+        putTemplateRecord(this, {
+          ...current,
+          name: savedProfile.name,
+          documentStyle: { ...savedProfile, name: savedProfile.name },
+          sourceName: current.sourceName
+        });
+        const after = getTemplateLibrary(this);
+        after.activeId = activeId;
+        after.activeGongmunId = activeGongmunId;
+        await this.saveSettings();
+        this.refreshPreviews();
+        this.settingTab?.refresh();
+      }).open();
+      return;
+    }
     const active = activeDocumentTemplate(this);
     const name = templateDisplayName(active);
     const initial = profile ?? editableDocumentStyle({

@@ -16,7 +16,7 @@ test("settings migrate to version 9 with safe export defaults", () => {
     unrelatedFutureSetting: "preserved"
   });
 
-  assert.equal(settings.settingsVersion, 12);
+  assert.equal(settings.settingsVersion, 13);
   assert.equal(settings.htmlExportTheme, "achmage-editorial");
   assert.equal(settings.importedImageDestination, "vault");
   assert.equal(settings.importedImageFolder, "");

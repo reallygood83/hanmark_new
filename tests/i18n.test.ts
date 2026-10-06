@@ -119,7 +119,8 @@ describe("document label language", () => {
 describe("settings v12", () => {
   it("adds language and preview-pause settings without touching existing values", () => {
     const migrated = normalizeHanmarkSettings({ settingsVersion: 11, htmlExportTheme: "classic" });
-    assert.equal(migrated.settingsVersion, 12);
+    assert.equal(migrated.settingsVersion, 13);
+    assert.deepEqual(migrated.companyTemplateByNote, {});
     assert.equal(migrated.uiLanguage, "auto");
     assert.equal(migrated.outputLanguage, "auto");
     assert.equal(migrated.previewAutoPause, true);

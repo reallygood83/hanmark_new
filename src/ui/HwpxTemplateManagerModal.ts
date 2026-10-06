@@ -26,6 +26,7 @@ import {
   listGongmunStyleChoices,
   setActiveGongmunTemplateInMemory,
   setTemplateFontSubstitutionsInMemory,
+  listCompanyTemplates,
   templateDisplayName,
   type HanmarkTemplateItem
 } from "../io/templateLibrary";
@@ -37,6 +38,14 @@ import { GongmunStyleModal } from "./GongmunStyleModal";
 import { errorMessage } from "../utils/errors";
 import { runWithNotice } from "./runWithNotice";
 import { t } from "../i18n";
+import {
+  activeCompanyTemplateFile,
+  applyCompanyTemplate,
+  createCompanyTemplate,
+  deleteCompanyTemplate,
+  newDocumentFromCompanyTemplate,
+  type CompanyTemplatePlugin
+} from "../io/companyTemplateFlow";
 
 type Refresh = () => void;
 
@@ -298,6 +307,7 @@ export class HwpxTemplateManagerModal extends Modal {
     };
 
     this.renderGongmunStyles(contentEl);
+    this.renderCompanyTemplates(contentEl);
 
     const footer = contentEl.createDiv({ cls: "hanmark-dialog-actions" });
     const close = footer.createEl("button", { text: t("common.close") });
@@ -409,6 +419,46 @@ export class HwpxTemplateManagerModal extends Modal {
     if (this.gateway) {
       const add = section.createDiv({ cls: "hanmark-template-add" });
       add.createEl("button", { text: t("gongmun.form.new") }).onclick = () => this.openGongmunStyle(null);
+    }
+  }
+
+  private renderCompanyTemplates(container: HTMLElement): void {
+    const plugin = this.plugin as CompanyTemplatePlugin;
+    const section = container.createDiv({ cls: "hanmark-template-section" });
+    section.createEl("h3", { text: t("companyTemplate.section") });
+    const records = listCompanyTemplates(plugin);
+    if (!records.length) section.createEl("p", { text: t("companyTemplate.none") });
+    for (const record of records) {
+      const row = section.createDiv({ cls: "hanmark-template-row" });
+      const info = row.createDiv({ cls: "hanmark-template-info" });
+      info.createEl("strong", { text: record.name });
+      const presetId = record.gongmunTemplateId
+        ? plugin.settings.hanmarkTemplateLibrary?.gongmunTemplates[record.gongmunTemplateId]?.preset
+        : undefined;
+      if (presetId) info.createEl("small", { text: gongmunPresetLabel(presetId) });
+      const actions = row.createDiv({ cls: "hanmark-template-actions" });
+      actions.createEl("button", { text: t("companyTemplate.newDocument") }).onclick = () => {
+        this.close();
+        void newDocumentFromCompanyTemplate(plugin, record.id);
+      };
+      actions.createEl("button", { text: t("companyTemplate.apply") }).onclick = () => {
+        void applyCompanyTemplate(plugin, record.id, activeCompanyTemplateFile(this.app));
+      };
+      actions.createEl("button", { text: t("companyTemplate.delete") }).onclick = () => {
+        void deleteCompanyTemplate(plugin, record.id).then((removed) => {
+          if (removed) {
+            this.onChanged();
+            this.render();
+          }
+        });
+      };
+    }
+    if (this.gateway) {
+      const add = section.createDiv({ cls: "hanmark-template-add" });
+      add.createEl("button", { text: t("command.createCompanyTemplate") }).onclick = () => {
+        this.close();
+        void createCompanyTemplate(plugin, activeCompanyTemplateFile(this.app));
+      };
     }
   }
 

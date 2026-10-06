@@ -46,7 +46,8 @@ import {
   type FileGateway,
   type SavedFileResult
 } from "./fileGateway";
-import { templateFontSubstitutions, type TemplateLibraryHost } from "./templateLibrary";
+import { companyExportDecision } from "./companyTemplate";
+import { companyTemplateForNote, noteQuickStyle, templateFontSubstitutions, type TemplateLibraryHost } from "./templateLibrary";
 import { gongmunFileLabel, gongmunGenerateOptions, planGongmunExport } from "./gongmunExport";
 import { freeVaultPath, gongmunVaultStem, sourceContractGongmunName } from "./exportFileNames";
 
@@ -184,22 +185,38 @@ async function generateBody(
     assembleEmbeds: assembleEmbedsSetting(host.settings),
     outputLanguage: outputLanguage(plugin)
   });
+  const linked = companyTemplateForNote(host, file.path);
+  const decision = companyExportDecision(linked);
+  if (decision === "abort" || (linked && !app.vault.getAbstractFileByPath(linked.notePath))) {
+    throw new Error(t("companyTemplate.broken"));
+  }
+  const quick = decision === "global" ? undefined : noteQuickStyle(host, file.path);
+  if (options.mode === "quick-hwpx" && decision !== "global" && !quick?.documentStyle) {
+    throw new Error(t("companyTemplate.broken"));
+  }
   // Official documents: window preset > note properties > institution style (2.7.0 W5).
+  // A company template supplies its own form when the caller did not name one.
   const gongmun = options.mode === "gongmun-hwpx"
-    ? planGongmunExport(app, file, host, options.gongmunPreset, options.gongmunFormId)
+    ? planGongmunExport(
+        app,
+        file,
+        host,
+        options.gongmunPreset,
+        options.gongmunFormId ?? (decision === "global" ? undefined : decision.gongmunTemplateId)
+      )
     : undefined;
   const adapted = adaptMarkdownForKordoc(prepared.markdown, { outputLanguage: outputLanguage(plugin) });
   adapted.warnings.unshift(...prepared.warnings, ...(gongmun?.warnings ?? []));
   return generateValidatedHwpxFromAdapted(adapted, {
-    profile: gongmun ? gongmun.profile : activeTableProfile(host),
+    profile: gongmun ? gongmun.profile : (quick?.tableStyle ?? activeTableProfile(host)),
     ...(gongmun ? gongmunGenerateOptions(gongmun) : {}),
     documentStyle:
       options.mode === "quick-hwpx"
-        ? activeDocumentStyle(host)
+        ? (quick?.documentStyle ?? activeDocumentStyle(host))
         : undefined,
     fontResolver: {
       platform: runtimePlatform(),
-      rules: options.mode === "quick-hwpx" ? templateFontSubstitutions(host) : undefined
+      rules: options.mode === "quick-hwpx" ? (quick?.fontSubstitutions ?? templateFontSubstitutions(host)) : undefined
     },
     images: {
       loader: createObsidianImageLoader(app, file),

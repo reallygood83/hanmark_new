@@ -114,7 +114,7 @@ export interface CustomFontEntry {
  * small prevents the retired Python and one-slot HWPX settings from returning.
  */
 export interface HanmarkSettings extends Record<string, unknown> {
-  settingsVersion: 12;
+  settingsVersion: 13;
   pandocPath: string;
   toolbarPosition: ToolbarPosition;
   showToolbarOnStartup: boolean;
@@ -179,10 +179,12 @@ export interface HanmarkSettings extends Record<string, unknown> {
   statusGongmunForm: boolean;
   /** Official-document form last chosen for each note (path → form id). */
   gongmunFormByNote: FormMemory;
+  /** Company template last applied to each note (path → company template id). */
+  companyTemplateByNote: FormMemory;
 }
 
 export const DEFAULT_HANMARK_SETTINGS: Readonly<HanmarkSettings> = Object.freeze({
-  settingsVersion: 12,
+  settingsVersion: 13,
   pandocPath: "pandoc",
   toolbarPosition: "top",
   showToolbarOnStartup: true,
@@ -222,7 +224,8 @@ export const DEFAULT_HANMARK_SETTINGS: Readonly<HanmarkSettings> = Object.freeze
   previewFollowCursor: true,
   statusCharCount: true,
   statusGongmunForm: true,
-  gongmunFormByNote: {}
+  gongmunFormByNote: {},
+  companyTemplateByNote: {}
 });
 
 export type HanmarkRuntimePlatform = "windows" | "macos" | "linux";
@@ -402,7 +405,7 @@ export function normalizeHanmarkSettings(
 
   return {
     ...preserved,
-    settingsVersion: 12,
+    settingsVersion: 13,
     pandocPath: nonEmptyString(data.pandocPath, DEFAULT_HANMARK_SETTINGS.pandocPath),
     toolbarPosition: "top",
     showToolbarOnStartup:
@@ -468,7 +471,8 @@ export function normalizeHanmarkSettings(
     previewFollowCursor: booleanOr(data.previewFollowCursor, DEFAULT_HANMARK_SETTINGS.previewFollowCursor),
     statusCharCount: booleanOr(data.statusCharCount, DEFAULT_HANMARK_SETTINGS.statusCharCount),
     statusGongmunForm: booleanOr(data.statusGongmunForm, DEFAULT_HANMARK_SETTINGS.statusGongmunForm),
-    gongmunFormByNote: normalizeFormMemory(data.gongmunFormByNote)
+    gongmunFormByNote: normalizeFormMemory(data.gongmunFormByNote),
+    companyTemplateByNote: normalizeFormMemory(data.companyTemplateByNote)
   };
 }
 

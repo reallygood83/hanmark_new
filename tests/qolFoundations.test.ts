@@ -25,7 +25,8 @@ import { t } from "../src/i18n";
 describe("quality-of-life settings (R-028)", () => {
   it("adds the new keys to settings v12 with their defaults", () => {
     const settings = normalizeHanmarkSettings({});
-    assert.equal(settings.settingsVersion, 12);
+    assert.equal(settings.settingsVersion, 13);
+    assert.deepEqual(settings.companyTemplateByNote, {});
     assert.equal(settings.toolbarCollapsed, false);
     assert.equal(settings.toolbarPeek, false);
     assert.equal(settings.toolbarLook, "classic");
